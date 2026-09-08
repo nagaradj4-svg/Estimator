@@ -1,0 +1,1888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantity & Cost Estimator - Ariankuppam</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- SheetJS (xlsx-js-style build — adds real cell style support, e.g. wrap text, on top of SheetJS) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style"></script>
+
+    <script>
+        tailwind.config = { theme: { extend: { colors: { pwd: { blue: '#1e3a8a', light: '#eff6ff', accent: '#2563eb' } } } } }
+    </script>
+    <style>
+        @page {
+            size: A4 portrait;
+            margin: 15mm 10mm 15mm 10mm; 
+        }
+        
+        @media print {
+            /* Reset body and wrappers to flow normally from the absolute top */
+            html, body {
+                background-color: white !important;
+                margin: 0 !important;
+                padding: 0 !important; 
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                min-height: auto !important; 
+                height: auto !important;
+                display: block !important;
+            }
+            
+            /* Cleanly hide UI elements without breaking the print bounding box */
+            .no-print, header, nav { 
+                display: none !important; 
+            }
+            
+            .print-only { 
+                display: block !important; 
+            }
+            
+            /* Strip all UI padding, margins, and borders from main containers */
+            #app, main, .print-container, .print-wrapper { 
+                margin: 0 !important; 
+                padding: 0 !important; 
+                border: none !important; 
+                box-shadow: none !important; 
+                max-width: 100% !important; 
+                display: block !important;
+            }
+            
+            .break-before-page { 
+                page-break-before: always !important; 
+            }
+            
+            /* Force headings to have zero margin so they don't push the page down */
+            .print-header { 
+                text-align: center !important; 
+                margin: 0 0 20px 0 !important; 
+                padding: 0 !important; 
+            }
+            .print-header h1, .print-header h2, .print-header h3 {
+                margin: 0 !important;
+                padding: 2px 0 !important;
+                line-height: 1.2 !important;
+            }
+            
+            table { 
+                width: 100% !important; 
+                border-collapse: collapse !important; 
+                page-break-inside: auto !important; 
+                margin-top: 0 !important; 
+            }
+            tr { page-break-inside: avoid !important; page-break-after: auto !important; }
+            th, td { 
+                border: 1px solid black !important; 
+                padding: 4px !important; 
+                font-size: 10pt !important; 
+                color: black !important; 
+            }
+            
+            /* Clean up input fields for print */
+            input, textarea, select { 
+                appearance: none !important; 
+                border: none !important; 
+                background: transparent !important; 
+                padding: 0 !important; 
+                margin: 0 !important; 
+                color: black !important; 
+                outline: none !important;
+                box-shadow: none !important;
+            }
+            
+            .print-signatures { 
+                display: flex !important; 
+                justify-content: space-between !important; 
+                margin-top: 60px !important; 
+                padding: 0 40px !important; 
+                page-break-inside: avoid !important; 
+            }
+        }
+        
+        .print-only { display: none; }
+        .tab-active { background-color: #2563eb; color: white; }
+        .tab-inactive { background-color: transparent; color: #d1d5db; }
+        .tab-inactive:hover { background-color: #1e40af; color: white; }
+        input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        [v-cloak] { display: none; }
+        textarea { overflow-y: hidden; resize: none; min-height: 28px; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans antialiased min-h-screen">
+
+<div id="app" v-cloak>
+
+    <!-- LOGIN / ACCESS SCREEN -->
+    <div v-if="!currentUser" class="min-h-screen flex items-center justify-center px-4 bg-gray-100">
+        <div class="w-full max-w-md bg-white rounded-lg shadow-md border border-gray-200 p-6">
+            <div class="text-center mb-6">
+                <h1 class="text-xl font-bold text-pwd-blue">Quantity & Cost Estimator</h1>
+                <p class="text-xs text-gray-500">Ariankuppam Commune Panchayat</p>
+            </div>
+
+            <div class="flex border-b mb-4">
+                <button @click="authMode = 'login'; authError=''" :class="authMode === 'login' ? 'border-b-2 border-pwd-blue text-pwd-blue font-bold' : 'text-gray-400'" class="flex-1 py-2 text-sm">Login</button>
+                <button @click="authMode = 'register'; registerMsg=''" :class="authMode === 'register' ? 'border-b-2 border-pwd-blue text-pwd-blue font-bold' : 'text-gray-400'" class="flex-1 py-2 text-sm">Request Access</button>
+            </div>
+
+            <!-- LOGIN FORM -->
+            <form v-if="authMode === 'login'" @submit.prevent="login" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Username</label>
+                    <input type="text" v-model="loginForm.username" autocomplete="username" class="w-full border rounded px-3 py-2 outline-none" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Password</label>
+                    <input type="password" v-model="loginForm.password" autocomplete="current-password" class="w-full border rounded px-3 py-2 outline-none" required>
+                </div>
+                <p v-if="authError" class="text-red-600 text-xs font-medium">{{ authError }}</p>
+                <button type="submit" class="w-full bg-pwd-blue hover:bg-blue-900 text-white py-2 rounded font-bold text-sm">Login</button>
+            </form>
+
+            <!-- REQUEST ACCESS FORM -->
+            <form v-else @submit.prevent="requestAccess" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Choose a Username</label>
+                    <input type="text" v-model="registerForm.username" autocomplete="username" class="w-full border rounded px-3 py-2 outline-none" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Choose a Password</label>
+                    <input type="password" v-model="registerForm.password" autocomplete="new-password" class="w-full border rounded px-3 py-2 outline-none" required>
+                </div>
+                <p v-if="registerMsg" class="text-xs font-medium" :class="registerMsg.startsWith('Request') ? 'text-green-600' : 'text-red-600'">{{ registerMsg }}</p>
+                <button type="submit" class="w-full bg-blue-800 hover:bg-blue-900 text-white py-2 rounded font-bold text-sm">Submit Request</button>
+                <p class="text-xs text-gray-400">An administrator must approve your request before you can log in.</p>
+            </form>
+
+            <p class="text-[10px] text-gray-400 mt-5 text-center">Access control is stored locally in this browser and is meant for basic authorization, not high-security protection.</p>
+        </div>
+    </div>
+
+    <!-- MAIN APPLICATION (visible once logged in) -->
+    <template v-else>
+
+    <header class="bg-pwd-blue text-white shadow-md no-print">
+        <div class="max-w-7xl mx-auto px-4 py-3">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div class="flex items-center gap-3">
+                    <svg class="w-8 h-8 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                    <div>
+                        <h1 class="text-xl font-bold tracking-wide">Quantity & Cost Estimator</h1>
+                        <p class="text-xs text-blue-200">Ariankuppam Commune Panchayat</p>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2 text-xs">
+                    <span class="text-blue-200 mr-2">👤 {{ currentUser.username }} <span class="uppercase text-[10px] bg-blue-800 px-1.5 py-0.5 rounded ml-1">{{ currentUser.role }}</span></span>
+                    <span v-if="lastSaved" class="text-blue-200 mr-2 hidden xl:inline">Auto-saved {{ lastSaved }}</span>
+                    
+                    <button @click="saveCompletePDF" class="bg-red-700 hover:bg-red-600 text-white px-3 py-1.5 rounded flex items-center gap-1.5 font-bold shadow-sm border border-red-500" title="Generates a single PDF containing both Detailed and Abstract sheets">
+                        📄 Save Complete PDF
+                    </button>
+
+                    <button @click="exportToExcel" class="bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded flex items-center gap-1.5 font-bold shadow-sm border border-green-500">
+                        Export Excel
+                    </button>
+
+                    <button @click="exportProjectJSON" class="bg-blue-800 hover:bg-blue-700 text-white px-3 py-1.5 rounded flex items-center gap-1.5">Save Project File</button>
+                    <label class="bg-blue-800 hover:bg-blue-700 text-white px-3 py-1.5 rounded flex items-center gap-1.5 cursor-pointer">
+                        Load Project File <input type="file" accept=".json" @change="importProjectJSON" class="hidden">
+                    </label>
+                    <button @click="resetProject" class="bg-red-800 hover:bg-red-700 text-white px-3 py-1.5 rounded" title="Clears estimate but keeps library intact">Reset Project</button>
+                    <button @click="logout" class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded" title="Log out">Logout</button>
+                </div>
+            </div>
+
+            <nav class="mt-4 flex space-x-2 border-t border-blue-800 pt-3 overflow-x-auto">
+                <button @click="activeTab = 'library'" :class="activeTab === 'library' ? 'tab-active' : 'tab-inactive'" class="px-4 py-2 rounded-md font-medium text-sm whitespace-nowrap">PSR Rate Library (Database)</button>
+                <button @click="activeTab = 'measurements'" :class="activeTab === 'measurements' ? 'tab-active' : 'tab-inactive'" class="px-4 py-2 rounded-md font-medium text-sm whitespace-nowrap">Detailed Measurements</button>
+                <button @click="activeTab = 'abstract'" :class="activeTab === 'abstract' ? 'tab-active' : 'tab-inactive'" class="px-4 py-2 rounded-md font-medium text-sm whitespace-nowrap">Abstract Estimate</button>
+                <button @click="activeTab = 'dpr'" :class="activeTab === 'dpr' ? 'tab-active' : 'tab-inactive'" class="px-4 py-2 rounded-md font-medium text-sm whitespace-nowrap">DPR Report</button>
+                <button @click="activeTab = 'nit'" :class="activeTab === 'nit' ? 'tab-active' : 'tab-inactive'" class="px-4 py-2 rounded-md font-medium text-sm whitespace-nowrap">Notice Inviting Tender</button>
+                <button v-if="isAdmin" @click="activeTab = 'users'" :class="activeTab === 'users' ? 'tab-active' : 'tab-inactive'" class="px-4 py-2 rounded-md font-medium text-sm whitespace-nowrap">
+                    User Access <span v-if="pendingUsersCount > 0" class="ml-1 bg-red-600 text-white rounded-full px-1.5 text-[10px]">{{ pendingUsersCount }}</span>
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-4 print-container">
+
+        <!-- Metadata Form -->
+        <div v-show="activeTab !== 'library' && activeTab !== 'users' && activeTab !== 'dpr' && activeTab !== 'nit'" class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4 no-print">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+                <div><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Name of Work</label><input type="text" v-model="projectMeta.workName" class="w-full border rounded px-2 py-1 outline-none"></div>
+                <div><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Estimate / Job No.</label><input type="text" v-model="projectMeta.estimateNo" class="w-full border rounded px-2 py-1 outline-none"></div>
+                <div><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Location</label><input type="text" v-model="projectMeta.location" class="w-full border rounded px-2 py-1 outline-none"></div>
+                <div><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Prepared Date</label><input type="date" v-model="projectMeta.date" class="w-full border rounded px-2 py-1 outline-none"></div>
+            </div>
+        </div>
+
+        <!-- TAB: USER ACCESS (Admin only) -->
+        <div v-if="isAdmin" v-show="activeTab === 'users'" class="space-y-4 no-print">
+
+            <div v-if="pendingUsersCount > 0" class="bg-white rounded-lg shadow-sm border overflow-hidden">
+                <div class="p-4 border-b bg-yellow-50"><h2 class="font-bold text-yellow-800">Pending Access Requests</h2></div>
+                <table class="min-w-full text-xs">
+                    <thead class="bg-gray-100"><tr><th class="p-3 text-left">Username</th><th class="p-3 text-center w-32">Action</th></tr></thead>
+                    <tbody class="divide-y">
+                        <tr v-for="u in users.filter(x => x.status === 'pending')" :key="u.username">
+                            <td class="p-3 font-semibold">{{ u.username }}</td>
+                            <td class="p-3 text-center flex gap-2 justify-center">
+                                <button @click="approveUser(u)" class="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs font-bold">Approve</button>
+                                <button @click="rejectUser(u)" class="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs font-bold">Reject</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-sm border p-6">
+                <h3 class="font-bold text-gray-800 mb-3">Add User Directly</h3>
+                <form @submit.prevent="addUserDirect" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end text-sm">
+                    <div><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Username</label><input type="text" v-model="newUserForm.username" class="w-full border rounded px-2 py-1 outline-none" required></div>
+                    <div><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Password</label><input type="password" v-model="newUserForm.password" class="w-full border rounded px-2 py-1 outline-none" required></div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Role</label>
+                        <select v-model="newUserForm.role" class="w-full border rounded px-2 py-1 outline-none">
+                            <option value="user">User</option>
+                            <option value="admin">Administrator</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="bg-pwd-blue hover:bg-blue-900 text-white px-3 py-1.5 rounded font-medium">+ Add & Approve</button>
+                </form>
+                <p v-if="newUserMsg" class="text-xs font-medium mt-2" :class="newUserMsg.startsWith('Added') ? 'text-green-600' : 'text-red-600'">{{ newUserMsg }}</p>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-sm border overflow-hidden">
+                <div class="p-4 border-b bg-gray-50"><h2 class="font-bold">All Users</h2></div>
+                <table class="min-w-full text-xs">
+                    <thead class="bg-gray-100">
+                        <tr><th class="p-3 text-left">Username</th><th class="p-3 text-center w-24">Role</th><th class="p-3 text-center w-24">Status</th><th class="p-3 text-center w-56">Actions</th></tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        <tr v-for="u in users.filter(x => x.status === 'approved')" :key="u.username">
+                            <td class="p-3 font-semibold">{{ u.username }}</td>
+                            <td class="p-3 text-center uppercase">{{ u.role }}</td>
+                            <td class="p-3 text-center"><span class="text-green-700 font-medium">Approved</span></td>
+                            <td class="p-3 text-center flex gap-2 justify-center flex-wrap">
+                                <button @click="toggleRole(u)" class="bg-blue-700 hover:bg-blue-800 text-white px-2 py-1 rounded text-xs">Make {{ u.role === 'admin' ? 'User' : 'Admin' }}</button>
+                                <button @click="resetUserPassword(u)" class="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded text-xs">Reset Password</button>
+                                <button @click="deleteUser(u)" class="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs">Delete</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB 1: LIBRARY -->
+        <div v-show="activeTab === 'library'" class="space-y-4 no-print">
+            <div class="bg-blue-50 border border-blue-200 rounded p-4 text-sm text-blue-800 flex items-center gap-3">
+                <svg class="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <p><strong>Persistent Database:</strong> Items uploaded or pasted here are saved permanently in your browser's local storage.</p>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-sm border p-6 flex flex-col gap-4">
+                <div>
+                    <h3 class="font-bold text-gray-800">Import Specifications</h3>
+                    <p class="text-xs text-gray-500 mb-2">Order: Code | Description | Unit | Rate</p>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <label class="border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer h-32 hover:bg-gray-50">
+                        <span class="text-sm font-medium">Click to upload .xlsx, .csv</span>
+                        <input type="file" accept=".xlsx, .xls, .csv" @change="handleFileUpload" class="hidden">
+                    </label>
+                    <textarea @paste="handlePaste" class="border-2 border-dashed rounded-lg p-4 text-sm outline-none resize-none h-32" placeholder="Paste table data directly from Excel or Word..."></textarea>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-sm border overflow-hidden">
+                <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                    <div class="flex items-center gap-4">
+                        <h2 class="font-bold">Active Library</h2>
+                        <button @click="clearLibrary" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs font-bold transition">Clear All Items</button>
+                    </div>
+                    <input type="text" v-model="searchQueryLibrary" placeholder="Search..." class="border rounded px-3 py-1 text-xs w-64">
+                </div>
+                <div class="overflow-x-auto max-h-[500px]">
+                    <table class="min-w-full text-xs">
+                        <thead class="bg-gray-100 sticky top-0">
+                            <tr>
+                                <th class="p-3 text-left w-24">Code</th>
+                                <th class="p-3 text-left">Description</th>
+                                <th class="p-3 text-center w-20">Unit</th>
+                                <th class="p-3 text-right w-24">Rate (₹)</th>
+                                <th class="p-3 text-center w-12">Del</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            <tr v-for="item in filteredLibrary" :key="item.code">
+                                <td class="p-2"><input type="text" v-model="item.code" class="w-full font-bold uppercase outline-none"></td>
+                                <td class="p-2"><input type="text" v-model="item.desc" class="w-full outline-none"></td>
+                                <td class="p-2"><input type="text" v-model="item.unit" class="w-full text-center outline-none"></td>
+                                <td class="p-2"><input type="text" v-model="item.rate" @blur="formatLibraryRate(item)" class="w-full text-right outline-none font-semibold"></td>
+                                <td class="p-2 text-center"><button @click="deleteLibraryItem(item.code)" class="text-red-500 font-bold">✕</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: DETAILED ESTIMATE -->
+        <div v-show="activeTab === 'measurements' || isPrintingAll">
+            
+            <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-200 mb-4 no-print flex flex-col md:flex-row items-center justify-between text-sm gap-4">
+                <span class="font-bold text-gray-700">Detailed Measurement Actions:</span>
+                <div class="flex flex-wrap items-center gap-2">
+                    <span v-if="selectedRowIds.length" class="text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1">📋 {{ selectedRowIds.length }} row(s) ready to paste — tap ⬇️ where you want them</span>
+                    <button @click="printReport" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-1.5 rounded font-medium shadow-sm transition">🖨️ Print</button>
+                    <button @click="savePdf" class="bg-red-700 hover:bg-red-600 text-white px-4 py-1.5 rounded font-medium shadow-sm transition">💾 Save PDF</button>
+                    <button @click="activeTab = 'abstract'" class="bg-green-600 hover:bg-green-500 text-white px-4 py-1.5 rounded font-medium shadow-sm ml-4 transition">Sync to Abstract &rarr;</button>
+                </div>
+            </div>
+
+            <div class="print-wrapper bg-white rounded-lg shadow-sm border p-6">
+                
+                <div class="print-only print-header">
+                    <h1 style="font-size: 16pt; font-weight: bold;">ARIANKUPPAM COMMUNE PANCHAYAT</h1>
+                    <h2 style="font-size: 14pt; font-weight: bold;">ARIANKUPPAM</h2>
+                    <h3 style="font-size: 13pt; font-weight: bold; text-decoration: underline;">DETAILED MEASUREMENT SHEET</h3>
+                    <table style="width: 100%; border: none !important; font-size: 10pt;">
+                        <tr>
+                            <td style="border: none !important;"><strong>Name of Work:</strong> {{ projectMeta.workName || '_________________________' }}</td>
+                            <td style="border: none !important; text-align: right;"><strong>Job No:</strong> {{ projectMeta.estimateNo || '______' }}</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <h2 class="font-bold text-gray-800 mb-4 no-print border-b pb-2">Part A: Detailed Measurement Sheet</h2>
+
+                <table class="min-w-full border-collapse border border-gray-400 text-xs text-black">
+                    <thead class="bg-gray-100 font-bold">
+                        <tr>
+                            <th class="border border-gray-400 p-2 text-center w-10">S.No</th>
+                            <th class="border border-gray-400 p-2 text-left w-24">Code</th>
+                            <th class="border border-gray-400 p-2 text-left">Item Description / Location</th>
+                            <th class="border border-gray-400 p-2 text-center w-24">Nos</th>
+                            <th class="border border-gray-400 p-2 text-center w-32">L</th>
+                            <th class="border border-gray-400 p-2 text-center w-20">B</th>
+                            <th class="border border-gray-400 p-2 text-center w-20">D/H</th>
+                            <th class="border border-gray-400 p-2 text-center w-16">Unit</th>
+                            <th class="border border-gray-400 p-2 text-right w-20">Quantity</th>
+                            <th class="border border-gray-400 p-1 text-center w-20 no-print">Act</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template v-for="(row, index) in measurements" :key="row.id">
+                            
+                            <!-- SPECIFICATION HEADER ROW -->
+                            <tr v-if="row.type === 'header'" class="bg-blue-50">
+                                <td class="border border-gray-400 p-2 text-center font-bold">{{ getSpecIndex(index) }}</td>
+                                <td class="border border-gray-400 p-1 relative align-top">
+                                    <div class="flex items-center">
+                                        <input type="text" v-model="row.code" @input="autoFillPsr(row)" class="w-full px-1 py-1 text-xs border-0 bg-transparent outline-none uppercase font-bold text-pwd-blue" placeholder="Code">
+                                        <button @click="openPsrSearchModal(row.id)" class="text-blue-600 p-1 no-print">🔍</button>
+                                    </div>
+                                </td>
+                                
+                                <td class="border border-gray-400 p-1 font-semibold text-gray-800 align-top" colspan="8">
+                                    <textarea v-model="row.desc" class="w-full px-1 py-1 text-xs border-0 bg-transparent outline-none no-print" oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'" placeholder="Main Specification..."></textarea>
+                                    <div class="print-only px-1 py-1 text-xs whitespace-pre-wrap leading-relaxed break-words">{{ row.desc }}</div>
+                                    <div class="no-print flex flex-wrap items-center gap-3 px-1 pb-1">
+                                        <label class="flex items-center gap-1 text-[10px] text-gray-600 font-semibold uppercase">
+                                            Unit
+                                            <input type="text" v-model="row.unit" class="w-16 border rounded px-1 py-0.5 text-xs outline-none uppercase" placeholder="cum / LS">
+                                        </label>
+                                        <label class="flex items-center gap-1 text-[10px] text-gray-600 font-semibold uppercase">
+                                            Rate (₹)
+                                            <input type="text" v-model="row.manualRate" @blur="formatManualRate(row)" class="w-24 border rounded px-1 py-0.5 text-xs outline-none text-right" placeholder="Enter manually">
+                                        </label>
+                                        <span v-if="row.code && isPsrMatch(row)" class="text-[10px] text-green-600 font-medium">✓ PSR rate available — edit above to override</span>
+                                        <span v-else class="text-[10px] text-amber-600 font-medium">⚠ Not in PSR library — enter rate manually (e.g. Lump Sum items)</span>
+                                    </div>
+                                </td>
+                                
+                                <td class="border border-gray-400 p-1 text-center no-print align-middle">
+                                    <div class="flex justify-center gap-1 flex-wrap">
+                                        <button @click="insertSpecificationBefore(index)" class="text-purple-600 hover:bg-purple-100 p-1 rounded" title="Insert New Specification Above This (e.g. an item missed by oversight)">⤴️➕</button>
+                                        <button @click="addMeasurementLine(index)" class="text-green-600 hover:bg-green-100 p-1 rounded" title="Add Blank Measurement Line">➕</button>
+                                        <button @click="pasteRow(index)" class="text-blue-600 hover:bg-blue-100 p-1 rounded" :disabled="!clipboardData || !clipboardData.length" :class="{'opacity-50': !clipboardData || !clipboardData.length}" title="Paste Copied Row(s) Here">⬇️</button>
+                                        <button @click="removeRow(index)" class="text-red-500 hover:bg-red-100 p-1 rounded" title="Delete Specification">✕</button>
+                                    </div>
+                                </td>
+                            </tr>
+
+                            <!-- MEASUREMENT LINE ROW -->
+                            <tr v-if="row.type === 'measurement'" :class="{'bg-blue-50': selectedRowIds.includes(row.id)}">
+                                <td class="border border-gray-400 p-2"></td>
+                                <td class="border border-gray-400 p-2"></td>
+                                <td class="border border-gray-400 p-1 align-top">
+                                    <textarea v-model="row.desc" class="w-full px-1 py-1 text-xs border-0 bg-transparent outline-none text-gray-700 no-print" oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'" placeholder="Location details..."></textarea>
+                                    <div class="print-only px-1 py-1 text-xs whitespace-pre-wrap">{{ row.desc }}</div>
+                                </td>
+                                <td class="border border-gray-400 p-1 align-top">
+                                    <input type="text" v-model="row.nos" @blur="formatNosField(row)" :disabled="row.refOnly" class="w-full text-center border-0 bg-transparent outline-none" :class="{'opacity-30 cursor-not-allowed': row.refOnly}" placeholder="1×2×3">
+                                </td>
+                                <td class="border border-gray-400 p-1 align-top">
+                                    <input type="text" v-model="row.l" @input="restrictLengthInput(row)" @blur="formatDecimal(row, 'l')" :disabled="row.refOnly" maxlength="11" class="w-full text-center border-0 bg-transparent outline-none" :class="{'opacity-30 cursor-not-allowed': row.refOnly}" placeholder="0.00">
+                                </td>
+                                <td class="border border-gray-400 p-1 align-top">
+                                    <input type="text" v-model="row.b" @blur="formatDecimal(row, 'b')" :disabled="row.refOnly" class="w-full text-center border-0 bg-transparent outline-none" :class="{'opacity-30 cursor-not-allowed': row.refOnly}">
+                                </td>
+                                <td class="border border-gray-400 p-1 align-top">
+                                    <input type="text" v-model="row.d" @blur="formatDecimal(row, 'd')" :disabled="row.refOnly" class="w-full text-center border-0 bg-transparent outline-none" :class="{'opacity-30 cursor-not-allowed': row.refOnly}">
+                                </td>
+                                <td class="border border-gray-400 p-2 bg-gray-50"></td>
+                                
+                                <td class="border border-gray-400 p-2 text-right font-medium align-top">
+                                    {{ calculateRowQty(row, index) !== 0 ? Number(calculateRowQty(row, index)).toFixed(2) : '' }}
+                                </td>
+                                
+                                <td class="border border-gray-400 p-1 text-center no-print align-middle">
+                                    <div class="flex justify-center gap-1">
+                                        <button @click="toggleReferenceLine(row)" class="p-1 rounded" :class="row.refOnly ? 'bg-amber-600 text-white' : 'text-amber-600 hover:bg-amber-100'" title="Mark this line as a reference/note only — blanks Nos, L, B, D so it does not count toward quantity">🔖</button>
+                                        <button @click="toggleCopySelect(row)" class="p-1 rounded" :class="selectedRowIds.includes(row.id) ? 'bg-blue-600 text-white' : 'text-blue-600 hover:bg-blue-100'" :title="selectedRowIds.includes(row.id) ? 'Selected for copying — tap to remove' : 'Tap to select this line for copying (tap more lines to add them)'">📋</button>
+                                        <button @click="pasteRow(index)" class="text-blue-600 hover:bg-blue-100 p-1 rounded" :disabled="!clipboardData || !clipboardData.length" :class="{'opacity-50': !clipboardData || !clipboardData.length}" title="Paste Copied Row(s) Here">⬇️</button>
+                                        <button @click="removeRow(index)" class="text-red-500 hover:bg-red-100 p-1 rounded" title="Delete Line">✕</button>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                            <!-- SUBTOTAL ROW -->
+                            <tr v-if="isEndOfGroup(index)" class="bg-gray-100 font-bold">
+                                <td class="border border-gray-400 p-2 text-right text-gray-800" colspan="8">Sub Total:</td>
+                                <td class="border border-gray-400 p-2 text-center text-gray-800">{{ getParentUnit(index) }}</td>
+                                <td class="border border-gray-400 p-2 text-right text-gray-800 underline">{{ getGroupTotal(index).toFixed(2) }}</td>
+                                <td class="border border-gray-400 p-1 text-center no-print">
+                                    <button @click="insertSpecificationAfter(index)" class="text-purple-600 hover:bg-purple-100 p-1 rounded font-normal" title="Insert New Specification Below This Group (e.g. an item missed by oversight)">➕⤵️</button>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+                <div class="mt-4 flex gap-3 no-print">
+                    <button @click="addSpecificationHeader" class="bg-pwd-blue hover:bg-blue-900 transition text-white px-3 py-1.5 rounded text-xs font-medium shadow-sm">+ Add New Specification</button>
+                    <button @click="addLumpSumItem" class="bg-amber-600 hover:bg-amber-700 transition text-white px-3 py-1.5 rounded text-xs font-medium shadow-sm">+ Add Lump Sum / Manual Item</button>
+                </div>
+
+                <div class="print-only print-signatures">
+                    <div style="text-align: center;"><p>Prepared By</p><p style="margin-top: 50px; font-weight: bold;">(Junior Engineer)</p></div>
+                    <div style="text-align: center;"><p>Checked By</p><p style="margin-top: 50px; font-weight: bold;">(Assistant Engineer)</p></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: ABSTRACT ESTIMATE -->
+        <div v-show="activeTab === 'abstract' || isPrintingAll" :class="{'break-before-page': isPrintingAll}">
+            
+            <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-200 mb-4 no-print flex flex-col md:flex-row items-center justify-between text-sm gap-4">
+                <span class="font-bold text-gray-700">Abstract Actions:</span>
+                <div class="flex gap-2">
+                    <button @click="printReport" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-1.5 rounded font-medium shadow-sm transition">🖨️ Print</button>
+                    <button @click="savePdf" class="bg-red-700 hover:bg-red-600 text-white px-4 py-1.5 rounded font-medium shadow-sm transition">💾 Save PDF</button>
+                </div>
+            </div>
+
+            <div class="print-wrapper bg-white rounded-lg shadow-sm border p-6">
+                
+                <div class="print-only print-header">
+                    <h1 style="font-size: 16pt; font-weight: bold;">ARIANKUPPAM COMMUNE PANCHAYAT</h1>
+                    <h2 style="font-size: 14pt; font-weight: bold;">ARIANKUPPAM</h2>
+                    <h3 style="font-size: 13pt; font-weight: bold; text-decoration: underline;">ABSTRACT ESTIMATE</h3>
+                    <table style="width: 100%; border: none !important; font-size: 10pt;">
+                        <tr>
+                            <td style="border: none !important;"><strong>Name of Work:</strong> {{ projectMeta.workName || '_________________________' }}</td>
+                            <td style="border: none !important; text-align: right;"><strong>Job No:</strong> {{ projectMeta.estimateNo || '______' }}</td>
+                        </tr>
+                        <tr>
+                            <td style="border: none !important;"><strong>Schedule of Rates:</strong> PSR 2024–2025</td>
+                            <td style="border: none !important; text-align: right;"><strong>Date:</strong> {{ projectMeta.date || '______' }}</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <h2 class="font-bold text-gray-900 mb-4 no-print border-b pb-2">Part B: Abstract Cost Estimate</h2>
+
+                <table class="min-w-full border-collapse border border-black mb-6 text-xs text-black">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="border border-black p-2 w-8">S.No</th>
+                            <th class="border border-black p-2 text-left w-16">Code</th>
+                            <th class="border border-black p-2 text-left">Description of Work</th>
+                            <th class="border border-black p-2 text-right w-16">Quantity</th>
+                            <th class="border border-black p-2 text-center w-12">Unit</th>
+                            <th class="border border-black p-2 text-right w-16">Rate (₹)</th>
+                            <th class="border border-black p-2 text-right w-16">Mod Rate (₹)</th>
+                            <th class="border border-black p-2 text-right w-20">Amount (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="(item, index) in abstractItems" :key="index">
+                            <td class="border border-black p-2 text-center align-top">{{ index + 1 }}</td>
+                            <td class="border border-black p-2 font-bold align-top">{{ item.code }}</td>
+                            <td class="border border-black p-2 align-top whitespace-pre-wrap leading-relaxed">{{ item.desc }}</td>
+                            <td class="border border-black p-2 text-right font-bold align-top whitespace-nowrap">{{ Number(item.qty).toFixed(2) }}</td>
+                            <td class="border border-black p-2 text-center font-semibold align-top whitespace-nowrap">{{ item.unit }}</td>
+                            <td class="border border-black p-2 text-right align-top whitespace-nowrap">{{ Number(item.rate).toFixed(2) }}</td>
+                            <td class="border border-black p-2 text-right align-top whitespace-nowrap">{{ Number(item.modifiedRate).toFixed(2) }}</td>
+                            <td class="border border-black p-2 text-right font-semibold align-top whitespace-nowrap">{{ Math.round(item.qty * item.modifiedRate).toLocaleString('en-IN') }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="flex justify-end text-black">
+                    <div class="w-full md:w-1/2">
+                        <table class="min-w-full border-collapse border border-black text-xs">
+                            <tbody>
+                                <tr>
+                                    <td class="border border-black p-2 font-semibold">Subtotal</td>
+                                    <td class="border border-black p-2 text-right font-semibold">₹ {{ subtotal.toFixed(2) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="border border-black p-2">
+                                        <div class="flex justify-between items-center">
+                                            <span>Unforeseen Contingencies</span>
+                                            <select v-model.number="contingencyPct" class="no-print border rounded px-1 outline-none">
+                                                <option value="0">0%</option><option value="3">3%</option><option value="5">5%</option>
+                                            </select>
+                                            <span class="print-only">({{ contingencyPct }}%)</span>
+                                        </div>
+                                    </td>
+                                    <td class="border border-black p-2 text-right">₹ {{ contingencyAmt.toFixed(2) }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="border border-black p-2 flex justify-between items-center">
+                                        <span>Works Contract GST</span>
+                                        <span class="no-print flex items-center gap-1">
+                                            <select v-model="gstPctSelect" @change="onGstPresetChange" class="border rounded px-1 outline-none">
+                                                <option value="0">0%</option><option value="5">5%</option><option value="12">12%</option><option value="18">18%</option><option value="custom">Custom...</option>
+                                            </select>
+                                            <input v-if="gstPctSelect === 'custom'" type="number" step="0.01" min="0" v-model.number="gstPct" class="w-16 border rounded px-1 outline-none text-right" placeholder="%">
+                                            <span v-if="gstPctSelect === 'custom'">%</span>
+                                        </span>
+                                        <span class="print-only">({{ gstPct }}%)</span>
+                                    </td>
+                                    <td class="border border-black p-2 text-right">₹ {{ gstAmt.toFixed(2) }}</td>
+                                </tr>
+                                <tr class="bg-gray-100 font-bold text-sm">
+                                    <td class="border border-black p-2 uppercase">Grand Total Amount</td>
+                                    <td class="border border-black p-2 text-right">₹ {{ grandTotal.toFixed(2) }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div class="mt-2 border border-black p-2 text-xs bg-gray-50">
+                            <strong>Rupees in Words:</strong> {{ numberToWords(grandTotal) }} Only.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="print-only print-signatures">
+                    <div style="text-align: center;"><p>Prepared By</p><p style="margin-top: 50px; font-weight: bold;">(Junior Engineer)</p></div>
+                    <div style="text-align: center;"><p>Checked By</p><p style="margin-top: 50px; font-weight: bold;">(Assistant Engineer)</p></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 4: DPR REPORT -->
+        <div v-show="activeTab === 'dpr'">
+
+            <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-200 mb-4 no-print flex flex-col md:flex-row items-center justify-between text-sm gap-4">
+                <span class="font-bold text-gray-700">DPR Report Actions:</span>
+                <div class="flex gap-2">
+                    <button @click="printReport" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-1.5 rounded font-medium shadow-sm transition">🖨️ Print</button>
+                    <button @click="savePdf" class="bg-red-700 hover:bg-red-600 text-white px-4 py-1.5 rounded font-medium shadow-sm transition">💾 Save PDF</button>
+                    <button @click="exportDprWord" class="bg-blue-700 hover:bg-blue-600 text-white px-4 py-1.5 rounded font-medium shadow-sm transition">📝 Export as Word (.doc)</button>
+                </div>
+            </div>
+
+            <!-- Quick entry fields -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4 no-print">
+                <h3 class="font-bold text-gray-800 mb-3 text-sm">Basic Details (Manual Entry)</h3>
+                <div class="grid grid-cols-1 gap-3 text-sm max-w-xl">
+                    <div><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Name of the Work</label><input type="text" v-model="dprMeta.workName" class="w-full border rounded px-2 py-1 outline-none"></div>
+                    <div><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Estimate Cost (₹)</label><input type="text" v-model="dprMeta.estimateCost" class="w-full border rounded px-2 py-1 outline-none" placeholder="e.g. 12,50,000"></div>
+                    <div><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Scheme</label><input type="text" v-model="dprMeta.scheme" class="w-full border rounded px-2 py-1 outline-none"></div>
+                    <div><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Fund</label><input type="text" v-model="dprMeta.fund" class="w-full border rounded px-2 py-1 outline-none"></div>
+                </div>
+            </div>
+
+            <div class="print-wrapper bg-white rounded-lg shadow-sm border p-6">
+
+                <div class="print-only print-header">
+                    <h1 style="font-size: 16pt; font-weight: bold;">ARIANKUPPAM COMMUNE PANCHAYAT</h1>
+                    <h2 style="font-size: 14pt; font-weight: bold;">ARIANKUPPAM</h2>
+                    <h3 style="font-size: 13pt; font-weight: bold; text-decoration: underline;">DETAILED PROJECT REPORT (DPR)</h3>
+                    <table style="width: 100%; border: none !important; font-size: 10pt;">
+                        <tr><td style="border: none !important;"><strong>Name of Work:</strong> {{ dprMeta.workName || '_________________________' }}</td></tr>
+                        <tr><td style="border: none !important;"><strong>Estimate Cost:</strong> ₹ {{ dprMeta.estimateCost || '______' }}</td></tr>
+                        <tr><td style="border: none !important;"><strong>Scheme:</strong> {{ dprMeta.scheme || '______' }}</td></tr>
+                        <tr><td style="border: none !important;"><strong>Fund:</strong> {{ dprMeta.fund || '______' }}</td></tr>
+                    </table>
+                </div>
+
+                <h2 class="font-bold text-gray-900 mb-4 no-print border-b pb-2">Detailed Project Report</h2>
+
+                <!-- On-screen summary box (mirrors the print header, for editing convenience) -->
+                <div class="no-print flex flex-col gap-1.5 text-sm bg-blue-50 border border-blue-200 rounded p-3 mb-5">
+                    <div><strong>Name of Work:</strong> {{ dprMeta.workName || '—' }}</div>
+                    <div><strong>Estimate Cost:</strong> ₹ {{ dprMeta.estimateCost || '—' }}</div>
+                    <div><strong>Scheme:</strong> {{ dprMeta.scheme || '—' }}</div>
+                    <div><strong>Fund:</strong> {{ dprMeta.fund || '—' }}</div>
+                </div>
+
+                <h3 class="font-bold text-black text-sm mb-3 border-b border-black pb-1">1. REPORT</h3>
+
+                <div class="space-y-4 text-sm text-black mb-6">
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-gray-600 mb-1 no-print">Details of the Work (Manual)</label>
+                        <textarea v-model="dprMeta.workName" class="w-full border rounded px-2 py-1.5 outline-none no-print" rows="2" placeholder="Elaborate on the name / nature of the work..." oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'"></textarea>
+                        <p class="print-only whitespace-pre-wrap"><strong>Name of the Work:</strong> {{ dprMeta.workName }}</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-gray-600 mb-1 no-print">Village / Location where the Work is Taken Up (Manual)</label>
+                        <input type="text" v-model="dprMeta.village" class="w-full border rounded px-2 py-1.5 outline-none no-print" placeholder="Village / Ward name...">
+                        <p class="print-only"><strong>Village / Location:</strong> {{ dprMeta.village }}</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-gray-600 mb-1 no-print">Necessity of the Estimate (Manual)</label>
+                        <textarea v-model="dprMeta.necessity" class="w-full border rounded px-2 py-1.5 outline-none no-print" rows="4" placeholder="Explain why this work / estimate is necessary..." oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'"></textarea>
+                        <p class="print-only whitespace-pre-wrap"><strong>Necessity of the Estimate:</strong> {{ dprMeta.necessity }}</p>
+                    </div>
+
+                    <div class="border border-black p-2 bg-gray-50 print:bg-white">
+                        <strong>Cost of Estimate:</strong> ₹ {{ dprMeta.estimateCost || grandTotal.toFixed(2) }}
+                        <span class="text-xs text-gray-500 no-print"> (from Basic Details above; Abstract Grand Total is ₹ {{ grandTotal.toFixed(2) }})</span>
+                    </div>
+                </div>
+
+                <h3 class="font-bold text-black text-sm mb-3 border-b border-black pb-1">2. SCOPE OF THE WORK</h3>
+                <p class="text-sm text-black mb-2 leading-relaxed">{{ scopeOfWorkParagraph }}</p>
+                <p v-if="scopeOfWorkGroups.length === 0" class="text-sm text-gray-500 mb-4">No items found — add specifications in Detailed Measurements first.</p>
+                <p class="text-sm text-black mb-6 mt-2">In brief, the proposed work involves {{ scopeOfWorkItemCount }} item(s) of work across {{ scopeOfWorkGroups.length }} work head(s) as listed above, with an estimated total cost of ₹ {{ (dprMeta.estimateCost || grandTotal.toFixed(2)) }} (inclusive of contingencies and GST as applicable), to be executed as per Puducherry Schedule of Rates.</p>
+
+                <h3 class="font-bold text-black text-sm mb-3 border-b border-black pb-1">3. ADDITIONAL DETAILS</h3>
+                <div class="space-y-4 text-sm text-black mb-4">
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-gray-600 mb-1 no-print">Rate Adopted — as per which PSR (Manual)</label>
+                        <input type="text" v-model="dprMeta.psrAdopted" class="w-full border rounded px-2 py-1.5 outline-none no-print" placeholder="e.g. PSR 2024-2025">
+                        <p class="print-only"><strong>Rate adopted as per:</strong> {{ dprMeta.psrAdopted }}</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-gray-600 mb-1 no-print">Method of Tendering (Manual)</label>
+                        <textarea v-model="dprMeta.tenderMethod" class="w-full border rounded px-2 py-1.5 outline-none no-print" rows="2" placeholder="e.g. e-Tendering / Quotation / Nomination..." oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'"></textarea>
+                        <p class="print-only whitespace-pre-wrap"><strong>Method of Tendering:</strong> {{ dprMeta.tenderMethod }}</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-gray-600 mb-1 no-print">Tools & Plant Arrangement (Manual)</label>
+                        <textarea v-model="dprMeta.toolsPlant" class="w-full border rounded px-2 py-1.5 outline-none no-print" rows="2" placeholder="e.g. Departmental / Contractor's own T&P..." oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'"></textarea>
+                        <p class="print-only whitespace-pre-wrap"><strong>Tools & Plant Arrangement:</strong> {{ dprMeta.toolsPlant }}</p>
+                    </div>
+                </div>
+
+                <div class="print-only print-signatures">
+                    <div style="text-align: center;"><p>Prepared By</p><p style="margin-top: 50px; font-weight: bold;">(Junior Engineer)</p></div>
+                    <div style="text-align: center;"><p>Checked By</p><p style="margin-top: 50px; font-weight: bold;">(Assistant Engineer)</p></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 5: NOTICE INVITING TENDER (NIT) -->
+        <div v-show="activeTab === 'nit'">
+
+            <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-200 mb-4 no-print flex flex-col md:flex-row items-center justify-between text-sm gap-4">
+                <span class="font-bold text-gray-700">Notice Inviting Tender Actions:</span>
+                <div class="flex gap-2">
+                    <button @click="printReport" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-1.5 rounded font-medium shadow-sm transition">🖨️ Print</button>
+                    <button @click="savePdf" class="bg-red-700 hover:bg-red-600 text-white px-4 py-1.5 rounded font-medium shadow-sm transition">💾 Save PDF</button>
+                    <button @click="exportNitWord" class="bg-blue-700 hover:bg-blue-600 text-white px-4 py-1.5 rounded font-medium shadow-sm transition">📝 Export as Word (.doc)</button>
+                </div>
+            </div>
+
+            <!-- Quick entry fields -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4 no-print">
+                <h3 class="font-bold text-gray-800 mb-3 text-sm">Basic Details (Manual Entry)</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm max-w-3xl">
+                    <div class="md:col-span-3"><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Name of Work</label><input type="text" v-model="projectMeta.workName" class="w-full border rounded px-2 py-1 outline-none"></div>
+                    <div><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">NIT No.</label><input type="text" v-model="nitMeta.nitNo" class="w-full border rounded px-2 py-1 outline-none" placeholder="e.g. ACP/NIT/01/2026-27"></div>
+                    <div><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">NIT Contains Pages — From</label><input type="text" v-model="nitMeta.pageFrom" class="w-full border rounded px-2 py-1 outline-none" placeholder="1"></div>
+                    <div><label class="block text-xs font-semibold text-gray-600 uppercase mb-1">NIT Contains Pages — To</label><input type="text" v-model="nitMeta.pageTo" class="w-full border rounded px-2 py-1 outline-none" placeholder="e.g. 5"></div>
+                </div>
+            </div>
+
+            <div class="print-wrapper bg-white rounded-lg shadow-sm border p-6">
+
+                <div class="print-only print-header">
+                    <h1 style="font-size: 16pt; font-weight: bold;">ARIANKUPPAM COMMUNE PANCHAYAT</h1>
+                    <h2 style="font-size: 14pt; font-weight: bold;">ARIANKUPPAM</h2>
+                    <h3 style="font-size: 13pt; font-weight: bold; text-decoration: underline;">SCHEDULE OF QUANTITIES</h3>
+                    <table style="width: 100%; border: none !important; font-size: 10pt;">
+                        <tr>
+                            <td style="border: none !important;"><strong>Name of Work:</strong> {{ projectMeta.workName || '_________________________' }}</td>
+                            <td style="border: none !important; text-align: right;"><strong>NIT No:</strong> {{ nitMeta.nitNo || '______' }}</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <h2 class="font-bold text-gray-900 mb-4 no-print border-b pb-2">Schedule of Quantities</h2>
+
+                <!-- On-screen summary box (mirrors the print header, for editing convenience) -->
+                <div class="no-print flex flex-col gap-1.5 text-sm bg-blue-50 border border-blue-200 rounded p-3 mb-5">
+                    <div><strong>Name of Work:</strong> {{ projectMeta.workName || '—' }}</div>
+                    <div><strong>NIT No.:</strong> {{ nitMeta.nitNo || '—' }}</div>
+                </div>
+
+                <table class="min-w-full border-collapse border border-black mb-4 text-xs text-black">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="border border-black p-2 w-8">S.No</th>
+                            <th class="border border-black p-2 text-left w-16">PSR Code</th>
+                            <th class="border border-black p-2 text-left">Description of Work</th>
+                            <th class="border border-black p-2 text-right w-16">Quantity</th>
+                            <th class="border border-black p-2 text-right w-16">Rate (₹)</th>
+                            <th class="border border-black p-2 text-center w-28">Per</th>
+                            <th class="border border-black p-2 text-right w-20">Amount (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="(item, index) in nitItems" :key="index">
+                            <td class="border border-black p-2 text-center align-top">{{ index + 1 }}</td>
+                            <td class="border border-black p-2 font-bold align-top">{{ item.code }}</td>
+                            <td class="border border-black p-2 align-top whitespace-pre-wrap leading-relaxed">{{ item.desc }}</td>
+                            <td class="border border-black p-2 text-right font-bold align-top whitespace-nowrap">{{ Number(item.qty).toFixed(2) }} {{ item.unit }}</td>
+                            <td class="border border-black p-2 text-right align-top whitespace-nowrap">{{ Number(item.modifiedRate).toFixed(2) }}</td>
+                            <td class="border border-black p-2 text-center align-top whitespace-nowrap">
+                                <div>{{ unitPerLine1(item.unit) }}</div>
+                                <div>{{ unitPerLine2(item.unit) }}</div>
+                            </td>
+                            <td class="border border-black p-2 text-right font-semibold align-top whitespace-nowrap">{{ Math.round(item.qty * item.modifiedRate).toLocaleString('en-IN') }}</td>
+                        </tr>
+                        <!-- Plain row (not <tfoot>) so this total prints once, wherever the last row of
+                             the table naturally falls, rather than being repeated on every printed page. -->
+                        <tr class="bg-gray-100 font-bold">
+                            <td class="border border-black p-2 text-right" colspan="6">Cumulative Total Amount of All Items</td>
+                            <td class="border border-black p-2 text-right">₹ {{ nitSubtotal.toLocaleString('en-IN') }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="text-sm text-black space-y-2 mt-6 border-t border-black pt-3">
+                    <p>Certified that this Notice Inviting Tender contains <strong>{{ nitMeta.pageFrom || '____' }}</strong> to <strong>{{ nitMeta.pageTo || '____' }}</strong> pages.</p>
+                    <p>Certified that this Notice Inviting Tender contains <strong>{{ nitItems.length }}</strong> item(s).</p>
+                    <p>The Notice Inviting Tender is approved for an amount of Rs. <strong>{{ nitGrandTotal.toLocaleString('en-IN') }}</strong> (Rupees {{ numberToWords(nitGrandTotal) }} Only) — inclusive of GST.</p>
+                </div>
+
+                <div class="print-only print-signatures">
+                    <div style="text-align: center;"><p>Signature</p><p style="margin-top: 50px; font-weight: bold;">(Junior Engineer)</p></div>
+                    <div style="text-align: center;"><p>Signature</p><p style="margin-top: 50px; font-weight: bold;">(Assistant Engineer)</p></div>
+                    <div style="text-align: center;"><p>Signature</p><p style="margin-top: 50px; font-weight: bold;">(Commissioner)</p></div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Search Modal -->
+    <div v-if="searchModal.isOpen" class="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-lg shadow-2xl w-full max-w-4xl flex flex-col h-[85vh]">
+            <div class="p-4 border-b flex justify-between bg-gray-50">
+                <h3 class="font-bold">Select Specification</h3>
+                <button @click="closePsrSearchModal" class="text-red-600 font-bold text-xl">&times;</button>
+            </div>
+            <div class="p-4 border-b"><input type="text" v-model="searchModal.query" placeholder="Search..." class="w-full border-2 border-blue-200 rounded px-4 py-2 outline-none"></div>
+            <div class="flex-1 overflow-y-auto p-0">
+                <table class="min-w-full text-xs text-left">
+                    <thead class="bg-gray-100 sticky top-0">
+                        <tr><th class="p-3 w-24">Code</th><th class="p-3">Specification</th><th class="p-3 w-16 text-center">Unit</th><th class="p-3 w-20 text-right">Rate</th></tr>
+                    </thead>
+                    <tbody class="divide-y bg-white">
+                        <tr v-for="item in filteredModalList" :key="item.code" @click="selectPsrItem(item)" class="hover:bg-blue-50 cursor-pointer">
+                            <td class="p-3 font-bold">{{ item.code }}</td><td class="p-3">{{ item.desc }}</td><td class="p-3 text-center">{{ item.unit }}</td><td class="p-3 text-right">{{ Number(item.rate).toFixed(2) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    </template>
+</div>
+
+<script>
+    const { createApp, ref, computed, watch, onMounted } = Vue;
+
+    const defaultPSRData = [
+        { code: "1.1", desc: "Earthwork in excavation by mechanical means in foundation trenches...", unit: "cum", rate: 254.50 },
+        { code: "2.1", desc: "Providing and laying in position cement concrete 1:4:8 in foundations...", unit: "cum", rate: 5890.00 },
+        { code: "4.5", desc: "Brick work with common burnt clay FPS bricks in superstructure...", unit: "cum", rate: 6250.00 },
+        { code: "5.1", desc: "12 mm cement plaster of mix 1:4 (1 cement : 4 fine sand)...", unit: "sqm", rate: 235.00 }
+    ];
+
+    // Simple client-side password hash (obscures plaintext; not high-security).
+    const hashPassword = (pw) => {
+        let hash = 0;
+        const salted = 'ACP_' + pw + '_v1';
+        for (let i = 0; i < salted.length; i++) { hash = ((hash << 5) - hash) + salted.charCodeAt(i); hash |= 0; }
+        return hash.toString(36);
+    };
+
+    createApp({
+        setup() {
+            const activeTab = ref('measurements');
+
+            // ---- Auth state ----
+            const currentUser = ref(null); // { username, role }
+            const users = ref([]);
+            const authMode = ref('login');
+            const authError = ref('');
+            const registerMsg = ref('');
+            const newUserMsg = ref('');
+            const loginForm = ref({ username: '', password: '' });
+            const registerForm = ref({ username: '', password: '' });
+            const newUserForm = ref({ username: '', password: '', role: 'user' });
+
+            const isAdmin = computed(() => currentUser.value && currentUser.value.role === 'admin');
+            const pendingUsersCount = computed(() => users.value.filter(u => u.status === 'pending').length);
+
+            const loadUsers = () => {
+                const stored = localStorage.getItem('acp_app_users');
+                if (stored) {
+                    try { users.value = JSON.parse(stored); } catch(e) { users.value = []; }
+                }
+                if (!users.value || users.value.length === 0) {
+                    users.value = [{ username: 'admin', passwordHash: hashPassword('admin123'), role: 'admin', status: 'approved' }];
+                }
+            };
+            const saveUsers = () => localStorage.setItem('acp_app_users', JSON.stringify(users.value));
+
+            const login = () => {
+                authError.value = '';
+                const uname = loginForm.value.username.trim();
+                const match = users.value.find(u => u.username.toLowerCase() === uname.toLowerCase());
+                if (!match || match.passwordHash !== hashPassword(loginForm.value.password)) {
+                    authError.value = 'Invalid username or password.';
+                    return;
+                }
+                if (match.status !== 'approved') {
+                    authError.value = 'Your account is awaiting administrator approval.';
+                    return;
+                }
+                currentUser.value = { username: match.username, role: match.role };
+                sessionStorage.setItem('acp_current_user', match.username);
+                loginForm.value = { username: '', password: '' };
+            };
+
+            const logout = () => {
+                currentUser.value = null;
+                sessionStorage.removeItem('acp_current_user');
+                authMode.value = 'login';
+            };
+
+            const requestAccess = () => {
+                registerMsg.value = '';
+                const uname = registerForm.value.username.trim();
+                if (!uname || !registerForm.value.password) { registerMsg.value = 'Enter a username and password.'; return; }
+                if (users.value.find(u => u.username.toLowerCase() === uname.toLowerCase())) { registerMsg.value = 'That username is already taken.'; return; }
+                users.value.push({ username: uname, passwordHash: hashPassword(registerForm.value.password), role: 'user', status: 'pending' });
+                registerMsg.value = 'Request submitted. Wait for administrator approval.';
+                registerForm.value = { username: '', password: '' };
+            };
+
+            const approveUser = (u) => { u.status = 'approved'; };
+            const rejectUser = (u) => { if (confirm(`Reject the access request from "${u.username}"?`)) users.value = users.value.filter(x => x !== u); };
+            const deleteUser = (u) => {
+                if (currentUser.value && u.username === currentUser.value.username) { alert("You can't delete the account you're currently logged in as."); return; }
+                if (confirm(`Delete user "${u.username}"? This cannot be undone.`)) users.value = users.value.filter(x => x !== u);
+            };
+            const toggleRole = (u) => { u.role = u.role === 'admin' ? 'user' : 'admin'; };
+            const resetUserPassword = (u) => {
+                const np = prompt(`Enter a new password for "${u.username}":`);
+                if (np) { u.passwordHash = hashPassword(np); alert('Password updated.'); }
+            };
+            const addUserDirect = () => {
+                newUserMsg.value = '';
+                const uname = newUserForm.value.username.trim();
+                if (!uname || !newUserForm.value.password) { newUserMsg.value = 'Enter a username and password.'; return; }
+                if (users.value.find(u => u.username.toLowerCase() === uname.toLowerCase())) { newUserMsg.value = 'That username already exists.'; return; }
+                users.value.push({ username: uname, passwordHash: hashPassword(newUserForm.value.password), role: newUserForm.value.role, status: 'approved' });
+                newUserMsg.value = `Added user "${uname}".`;
+                newUserForm.value = { username: '', password: '', role: 'user' };
+            };
+            const searchQueryLibrary = ref('');
+            const lastSaved = ref('');
+            const searchModal = ref({ isOpen: false, targetRowId: null, query: '' });
+            
+            const clipboardData = ref(null); // array of copied row(s), or null
+            const selectedRowIds = ref([]); // ids of measurement rows checked for multi-row copy
+            const isPrintingAll = ref(false); 
+
+            const projectMeta = ref({ workName: '', estimateNo: '', location: 'Ariankuppam', date: new Date().toISOString().split('T')[0] });
+            const psrData = ref([]); 
+            const contingencyPct = ref(3);
+            const gstPct = ref(18);
+            const gstPctSelect = ref('18');
+            const onGstPresetChange = () => {
+                if (gstPctSelect.value !== 'custom') { gstPct.value = Number(gstPctSelect.value); }
+            };
+            const syncGstSelectFromValue = () => {
+                const presets = ['0', '5', '12', '18'];
+                gstPctSelect.value = presets.includes(String(gstPct.value)) ? String(gstPct.value) : 'custom';
+            };
+            const rateModificationFactor = 0.973;
+
+            const dprMeta = ref({ workName: '', estimateCost: '', scheme: '', fund: '', village: '', necessity: '', psrAdopted: 'PSR 2024-2025', tenderMethod: '', toolsPlant: '' });
+            const nitMeta = ref({ nitNo: '', pageFrom: '', pageTo: '' });
+
+            const measurements = ref([
+                { id: Date.now().toString(36), type: 'header', code: '1.1', desc: 'Earthwork in excavation by mechanical means in foundation trenches...', unit: 'cum' },
+                { id: (Date.now() + 1).toString(36), type: 'measurement', desc: 'Main Columns', nos: '4', l: '1.50', b: '1.50', d: '1.20' }
+            ]);
+
+            const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+
+            const loadDatabase = () => {
+                const lib = localStorage.getItem('pwd_library_database');
+                if (lib) { psrData.value = JSON.parse(lib); } else { psrData.value = [...defaultPSRData]; }
+            };
+            
+            const loadProject = () => {
+                const p = localStorage.getItem('pwd_project_file');
+                if (p) { 
+                    try { 
+                        const data = JSON.parse(p); 
+                        if(data.projectMeta) projectMeta.value = data.projectMeta; 
+                        if(data.measurements) measurements.value = data.measurements; 
+                        if(data.contingencyPct !== undefined) contingencyPct.value = data.contingencyPct; 
+                        if(data.gstPct !== undefined) gstPct.value = data.gstPct; 
+                        if(data.dprMeta) dprMeta.value = data.dprMeta;
+                        if(data.nitMeta) nitMeta.value = data.nitMeta;
+                    } catch(e){} 
+                }
+                syncGstSelectFromValue();
+            };
+
+            onMounted(() => {
+                loadUsers();
+                const savedUsername = sessionStorage.getItem('acp_current_user');
+                if (savedUsername) {
+                    const match = users.value.find(u => u.username === savedUsername && u.status === 'approved');
+                    if (match) currentUser.value = { username: match.username, role: match.role };
+                }
+                loadDatabase();
+                loadProject();
+            });
+
+            watch(users, saveUsers, { deep: true });
+
+            watch(psrData, () => { localStorage.setItem('pwd_library_database', JSON.stringify(psrData.value)); }, { deep: true });
+            
+            watch([projectMeta, measurements, contingencyPct, gstPct, dprMeta, nitMeta], () => {
+                const p = { projectMeta: projectMeta.value, measurements: measurements.value, contingencyPct: contingencyPct.value, gstPct: gstPct.value, dprMeta: dprMeta.value, nitMeta: nitMeta.value, savedAt: new Date().toLocaleTimeString() };
+                localStorage.setItem('pwd_project_file', JSON.stringify(p)); lastSaved.value = p.savedAt;
+            }, { deep: true });
+
+            const exportProjectJSON = () => {
+                const str = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({projectMeta:projectMeta.value, measurements:measurements.value, contingencyPct:contingencyPct.value, gstPct:gstPct.value, dprMeta:dprMeta.value, nitMeta:nitMeta.value}));
+                const a = document.createElement('a'); a.href = str; a.download = `Est_${projectMeta.value.estimateNo || 'Proj'}.json`; document.body.appendChild(a); a.click(); a.remove();
+            };
+            
+            const importProjectJSON = (e) => {
+                const f = e.target.files[0]; if(!f) return;
+                const r = new FileReader(); r.onload = (ev) => { 
+                    try { 
+                        const data = JSON.parse(ev.target.result); 
+                        if(data.projectMeta) projectMeta.value = data.projectMeta; 
+                        if(data.measurements) measurements.value = data.measurements; 
+                        if(data.contingencyPct !== undefined) contingencyPct.value = data.contingencyPct; 
+                        if(data.gstPct !== undefined) gstPct.value = data.gstPct; 
+                        if(data.dprMeta) dprMeta.value = data.dprMeta;
+                        if(data.nitMeta) nitMeta.value = data.nitMeta;
+                        syncGstSelectFromValue();
+                        alert("Project File Loaded!"); 
+                    } catch(err){ alert("Invalid file"); } 
+                }; r.readAsText(f);
+            };
+            
+            const resetProject = () => { 
+                if(confirm("Clear project data? Your PSR Library Database will remain untouched.")) { 
+                    projectMeta.value = { workName: '', estimateNo: '', location: 'Ariankuppam', date: new Date().toISOString().split('T')[0] }; 
+                    measurements.value = []; 
+                    dprMeta.value = { workName: '', estimateCost: '', scheme: '', fund: '', village: '', necessity: '', psrAdopted: 'PSR 2024-2025', tenderMethod: '', toolsPlant: '' };
+                    nitMeta.value = { nitNo: '', pageFrom: '', pageTo: '' };
+                    selectedRowIds.value = [];
+                    clipboardData.value = null;
+                    localStorage.removeItem('pwd_project_file'); 
+                    lastSaved.value = ''; 
+                } 
+            };
+
+            const printReport = () => window.print();
+            
+            const savePdf = () => {
+                alert("To Save as a PDF File:\n\n1. Wait for the Print dialog to open.\n2. Change your Printer/Destination to 'Save as PDF'.\n3. Click Save.");
+                window.print();
+            };
+
+            const saveCompletePDF = () => {
+                alert("To Save Complete Document as PDF:\n\n1. Wait for the Print dialog to open.\n2. Change your Printer/Destination to 'Save as PDF'.\n3. Click Save.");
+                isPrintingAll.value = true;
+                setTimeout(() => {
+                    window.print();
+                    setTimeout(() => { isPrintingAll.value = false; }, 500);
+                }, 300);
+            };
+
+            const formatDecimal = (row, field) => {
+                let val = parseFloat(row[field]);
+                row[field] = isNaN(val) ? '' : val.toFixed(2);
+            };
+
+            // Restricts the Length field, while typing, to at most 6 digits before the decimal point
+            // and 2 digits after it (e.g. up to "999999.99").
+            // Restricts the Length field, while typing, to at most 7 digits before the decimal point
+            // and 2 digits after it (e.g. up to "9999999.99").
+            // Restricts the Length field, while typing, to at most 8 digits before the decimal point
+            // and 2 digits after it (e.g. up to "99999999.99").
+            const restrictLengthInput = (row) => {
+                let v = String(row.l || '').replace(/[^0-9.]/g, '');
+                const firstDot = v.indexOf('.');
+                if (firstDot !== -1) {
+                    v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, '');
+                }
+                const parts = v.split('.');
+                let result = parts[0].slice(0, 8);
+                if (parts.length > 1) result += '.' + parts[1].slice(0, 2);
+                row.l = result;
+            };
+
+            // Parses a "Nos" expression like "1×2×3", "1x4", or "2*3" into its numeric product.
+            // Any factor that fails to parse as a number invalidates the whole expression (returns 0),
+            // matching the previous default-to-0 behaviour of a blank Nos field.
+            const parseNosExpression = (str) => {
+                if (str === null || str === undefined || String(str).trim() === '') return 0;
+                const parts = String(str).toLowerCase().split(/[x×*]/).map(s => s.trim()).filter(s => s !== '');
+                if (parts.length === 0) return 0;
+                let product = 1;
+                for (const p of parts) {
+                    const num = parseFloat(p);
+                    if (isNaN(num)) return 0;
+                    product *= num;
+                }
+                return product;
+            };
+
+            // Tidies up a Nos expression on blur: normalizes each numeric factor and rejoins with '×'.
+            const formatNosField = (row) => {
+                if (row.nos === null || row.nos === undefined || String(row.nos).trim() === '') { row.nos = ''; return; }
+                const parts = String(row.nos).split(/[x×*]/).map(s => s.trim()).filter(s => s !== '');
+                if (parts.length === 0) { row.nos = ''; return; }
+                const normalized = parts.map(p => { const v = parseFloat(p); return isNaN(v) ? p : v; });
+                row.nos = normalized.join('×');
+            };
+            
+            const formatLibraryRate = (item) => {
+                let val = parseFloat(item.rate);
+                if (!isNaN(val)) { item.rate = val.toFixed(2); }
+            };
+
+            const clearLibrary = () => {
+                if(confirm("Are you sure you want to delete ALL specifications from the library? This cannot be undone.")) {
+                    psrData.value = [];
+                }
+            };
+
+            const deleteLibraryItem = (code) => { if (confirm(`Delete ${code} from Database?`)) psrData.value = psrData.value.filter(item => item.code !== code); };
+            
+            const processTableDataArray = (dataArray) => {
+                const newItems = [];
+                dataArray.forEach(row => {
+                    if (row && row.length >= 4) {
+                        const code = String(row[0]).trim(); const desc = String(row[1]).trim();
+                        let unit = String(row[2]).trim().toLowerCase(); const rate = parseFloat(String(row[3]).replace(/[^0-9.]/g, ''));
+                        if(unit.includes('m3')||unit.includes('cu')) unit='cum'; if(unit.includes('m2')||unit.includes('sq')) unit='sqm'; if(unit.includes('kg')) unit='kilos';
+                        if (code && !isNaN(rate)) newItems.push({ code, desc, unit, rate: rate.toFixed(2) });
+                    }
+                });
+                if(newItems.length > 0) { psrData.value = [...newItems, ...psrData.value]; alert(`Imported ${newItems.length} items to Database`); }
+            };
+            
+            const handleFileUpload = (e) => {
+                const f = e.target.files[0]; if(!f) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => { const data = new Uint8Array(ev.target.result); const workbook = XLSX.read(data, {type: 'array'}); const sheet = workbook.Sheets[workbook.SheetNames[0]]; processTableDataArray(XLSX.utils.sheet_to_json(sheet, {header: 1})); };
+                reader.readAsArrayBuffer(f);
+            };
+            
+            const handlePaste = (e) => { e.preventDefault(); const pasteData = (e.clipboardData || window.clipboardData).getData('text'); if(pasteData) processTableDataArray(pasteData.split(/\r?\n/).map(row => row.split(/\t/))); };
+            
+            const filteredLibrary = computed(() => { if(!searchQueryLibrary.value) return psrData.value; const q = searchQueryLibrary.value.toLowerCase(); return psrData.value.filter(i => i.code.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q)); });
+
+            const addSpecificationHeader = () => measurements.value.push({ id: generateId(), type: 'header', code: '', desc: '', unit: 'cum', manualRate: '' });
+
+            const addLumpSumItem = () => {
+                measurements.value.push({ id: generateId(), type: 'header', code: '', desc: '', unit: 'LS', manualRate: '' });
+                measurements.value.push({ id: generateId(), type: 'measurement', desc: '', nos: '1', l: '', b: '', d: '' });
+            };
+
+            // Insert a brand-new specification (with one blank measurement line) directly before the
+            // header row at headerIndex — for an item that was missed by oversight in an already-prepared estimate.
+            const insertSpecificationBefore = (headerIndex) => {
+                measurements.value.splice(headerIndex, 0,
+                    { id: generateId(), type: 'header', code: '', desc: '', unit: 'cum', manualRate: '' },
+                    { id: generateId(), type: 'measurement', desc: '', nos: '', l: '', b: '', d: '' }
+                );
+            };
+
+            // Insert a brand-new specification (with one blank measurement line) right after the group
+            // that ends at endIndex (i.e. after its Sub Total row) — same use case, for inserting below an item.
+            const insertSpecificationAfter = (endIndex) => {
+                measurements.value.splice(endIndex + 1, 0,
+                    { id: generateId(), type: 'header', code: '', desc: '', unit: 'cum', manualRate: '' },
+                    { id: generateId(), type: 'measurement', desc: '', nos: '', l: '', b: '', d: '' }
+                );
+            };
+            
+            const addMeasurementLine = (headerIndex) => {
+                let insertIdx = headerIndex + 1;
+                while(insertIdx < measurements.value.length && measurements.value[insertIdx].type === 'measurement') { insertIdx++; }
+                measurements.value.splice(insertIdx, 0, { id: generateId(), type: 'measurement', desc: '', nos: '', l: '', b: '', d: '' });
+            };
+            
+            const removeRow = (index) => {
+                const removedId = measurements.value[index] && measurements.value[index].id;
+                measurements.value.splice(index, 1);
+                if (removedId) {
+                    const selIdx = selectedRowIds.value.indexOf(removedId);
+                    if (selIdx !== -1) selectedRowIds.value.splice(selIdx, 1);
+                }
+            };
+
+            // Toggles a measurement line between a normal (calculated) row and a reference/note-only
+            // row. Reference rows blank out and disable Nos/L/B/D so the row is purely for typing a
+            // reference (drawing no., remark, etc.) without affecting quantity or the group subtotal.
+            const toggleReferenceLine = (row) => {
+                row.refOnly = !row.refOnly;
+                if (row.refOnly) {
+                    row.nos = ''; row.l = ''; row.b = ''; row.d = '';
+                }
+            };
+            
+            // Tapping the 📋 icon on a line toggles it in/out of the current copy selection — tap
+            // more lines to build up a multi-row copy, tap a selected line again to remove it.
+            // The clipboard is kept in sync with the selection (in on-screen order) after every tap,
+            // so the same ⬇️ paste icon used for a single line also pastes the whole selected group.
+            const toggleCopySelect = (row) => {
+                const idx = selectedRowIds.value.indexOf(row.id);
+                if (idx === -1) selectedRowIds.value.push(row.id);
+                else selectedRowIds.value.splice(idx, 1);
+
+                if (!selectedRowIds.value.length) { clipboardData.value = null; return; }
+                const selectedSet = new Set(selectedRowIds.value);
+                const rows = measurements.value.filter(m => m.type === 'measurement' && selectedSet.has(m.id));
+                clipboardData.value = JSON.parse(JSON.stringify(rows));
+            };
+
+            const pasteRow = (index) => {
+                if (!clipboardData.value || !clipboardData.value.length) return;
+                const newRows = clipboardData.value.map(r => {
+                    const copy = JSON.parse(JSON.stringify(r));
+                    copy.id = generateId();
+                    return copy;
+                });
+                measurements.value.splice(index + 1, 0, ...newRows);
+                // Auto-deselect after pasting, so the same selection can't be pasted again by accident.
+                selectedRowIds.value = [];
+                clipboardData.value = null;
+            };
+
+            const getSpecIndex = (index) => {
+                let count = 0;
+                for(let i=0; i<=index; i++) { if(measurements.value[i].type === 'header') count++; }
+                return count;
+            };
+
+            const autoFillPsr = (row) => {
+                const match = psrData.value.find(p => p.code.toUpperCase() === row.code.toUpperCase());
+                if (match) { row.desc = match.desc; row.unit = match.unit; row.code = row.code.toUpperCase(); row.manualRate = match.rate; }
+            };
+
+            const getPsrItem = (row) => row.code ? psrData.value.find(p => p.code.toUpperCase() === row.code.toUpperCase()) : undefined;
+            const isPsrMatch = (row) => !!getPsrItem(row);
+            const formatManualRate = (row) => {
+                const val = parseFloat(row.manualRate);
+                row.manualRate = isNaN(val) ? '' : val.toFixed(2);
+            };
+
+            const getParentHeader = (index) => {
+                for (let i = index; i >= 0; i--) { 
+                    if (measurements.value[i] && measurements.value[i].type === 'header') return measurements.value[i]; 
+                }
+                return { unit: 'ERROR', code: 'ERROR' };
+            };
+            const getParentUnit = (index) => getParentHeader(index).unit;
+
+            const parseDim = (val, defaultVal) => {
+                if (val === null || val === undefined || val === '') return defaultVal;
+                const parsed = parseFloat(val);
+                return isNaN(parsed) ? defaultVal : parsed;
+            };
+
+            const calculateRowQty = (row, index) => {
+                if (row.refOnly) return 0;
+                let qty = 0; 
+                const n = parseNosExpression(row.nos); 
+                const l = parseDim(row.l, 1); 
+                const b = parseDim(row.b, 1); 
+                const d = parseDim(row.d, 1);
+                const u = getParentUnit(index).toLowerCase();
+                
+                if (u === 'nos' || u === 'ls' || u === 'l.s' || u === 'l.s.' || u === 'lumpsum' || u === 'lump sum' || u === 'job' || u === 'set') qty = n; 
+                else if (u === 'rm' || u === 'kilos' || u === 'quintal' || u === 'm' || u === 'rft') qty = n * l; 
+                else if (u === 'sqm' || u === 'sq.m' || u === 'sft') qty = n * l * b; 
+                else qty = n * l * b * d;
+                
+                return qty; 
+            };
+
+            const isEndOfGroup = (index) => {
+                if (measurements.value[index].type === 'header') return false; 
+                if (index === measurements.value.length - 1) return true; 
+                return (measurements.value[index + 1].type === 'header'); 
+            };
+
+            const getGroupTotal = (index) => {
+                let total = 0;
+                for (let i = index; i >= 0; i--) {
+                    if (measurements.value[i].type === 'header') break;
+                    if (measurements.value[i].type === 'measurement') {
+                        total += calculateRowQty(measurements.value[i], i);
+                    }
+                }
+                return total;
+            };
+
+            const openPsrSearchModal = (rowId) => { searchModal.value = { isOpen: true, targetRowId: rowId, query: '' }; };
+            const closePsrSearchModal = () => searchModal.value.isOpen = false;
+            
+            const filteredModalList = computed(() => {
+                if(!searchModal.value.query) return psrData.value;
+                const q = searchModal.value.query.toLowerCase().split(' ');
+                return psrData.value.filter(i => { const text = (i.code + " " + i.desc).toLowerCase(); return q.every(word => text.includes(word)); });
+            });
+            
+            const selectPsrItem = (item) => {
+                const row = measurements.value.find(m => m.id === searchModal.value.targetRowId);
+                if (row) { row.code = item.code; row.desc = item.desc; row.unit = item.unit; row.manualRate = item.rate; }
+                closePsrSearchModal();
+            };
+
+            // Lump Sum / manually-entered items are excluded from the PSR rate modification factor —
+            // the factor only applies to items priced against the PSR schedule.
+            // Maps a PSR unit code to its full word form for the NIT's "Per" column (e.g. "cum" -> "One Cubic Metre").
+            // Lump-sum-style units are shown without the "One" prefix since they aren't a per-unit rate.
+            const UNIT_WORDS = {
+                'cum': 'Cubic Metre', 'cu.m': 'Cubic Metre', 'cum.': 'Cubic Metre', 'm3': 'Cubic Metre',
+                'sqm': 'Square Metre', 'sq.m': 'Square Metre', 'sqm.': 'Square Metre', 'm2': 'Square Metre',
+                'rm': 'Running Metre', 'r.m': 'Running Metre', 'rmt': 'Running Metre',
+                'm': 'Metre', 'mtr': 'Metre', 'metre': 'Metre',
+                'sft': 'Square Feet', 'sq.ft': 'Square Feet', 'sqft': 'Square Feet',
+                'rft': 'Running Feet',
+                'cft': 'Cubic Feet',
+                'kg': 'Kilogram', 'kilos': 'Kilogram', 'kgs': 'Kilogram',
+                'quintal': 'Quintal', 'qtl': 'Quintal',
+                'mt': 'Metric Tonne', 'tonne': 'Metric Tonne',
+                'nos': 'Number', 'no': 'Number', 'each': 'Each',
+                'ls': 'Lump Sum', 'l.s': 'Lump Sum', 'l.s.': 'Lump Sum', 'lumpsum': 'Lump Sum', 'lump sum': 'Lump Sum',
+                'job': 'Job', 'set': 'Set'
+            };
+            // "Per" column, e.g. unit "cum" -> line1 "1 CUM", line2 "(One cubic metre)".
+            const unitPerLine1 = (unit) => '1 ' + (unit || '').toUpperCase();
+            const unitPerLine2 = (unit) => {
+                const u = (unit || '').toLowerCase().trim();
+                const word = UNIT_WORDS[u] || (unit || '').toUpperCase();
+                const phrase = 'one ' + word.toLowerCase();
+                return '(' + phrase.charAt(0).toUpperCase() + phrase.slice(1) + ')';
+            };
+
+            const isLumpSumUnit = (unit) => {
+                const u = (unit || '').toLowerCase().trim();
+                return u === 'ls' || u === 'l.s' || u === 'l.s.' || u === 'lumpsum' || u === 'lump sum' || u === 'job' || u === 'set';
+            };
+
+            const abstractItems = computed(() => {
+                const g = {};
+                let currentKey = null;
+                measurements.value.forEach((m, idx) => {
+                    if (m.type === 'header' && (m.code || m.desc)) {
+                        currentKey = m.code ? m.code.toUpperCase() : ('MANUAL-' + m.id);
+                        if (!g[currentKey]) {
+                            const p = m.code ? psrData.value.find(x => x.code.toUpperCase() === currentKey) : undefined;
+                            const manualRateNum = parseFloat(m.manualRate);
+                            const baseRate = (m.manualRate !== '' && m.manualRate !== undefined && !isNaN(manualRateNum)) ? manualRateNum : (p ? Number(p.rate) : 0);
+                            const unit = m.unit || (p ? p.unit : 'cum');
+                            const factor = isLumpSumUnit(unit) ? 1 : rateModificationFactor;
+                            // Round the modified rate to paise (2 decimals) once, here at the source,
+                            // and use that exact rounded value everywhere — for display AND for the
+                            // Amount multiplication. Previously the display showed a 2-decimal rate
+                            // while Amount was computed from the raw, unrounded rate, so manually
+                            // multiplying the shown Rate × Quantity didn't match the shown Amount.
+                            const modifiedRate = Math.round(baseRate * factor * 100) / 100;
+                            g[currentKey] = { code: m.code ? m.code.toUpperCase() : '(Manual)', desc: m.desc || (p ? p.desc : ''), unit: unit, qty: 0, rate: baseRate, modifiedRate: modifiedRate };
+                        }
+                    } else if (m.type === 'measurement' && currentKey) {
+                        const qty = calculateRowQty(m, idx);
+                        if (qty !== 0) {
+                            g[currentKey].qty += qty;
+                        }
+                    }
+                });
+                // Round each item's Quantity to 2 decimals here, at the source — same reasoning as
+                // the Modified Rate fix: qty was displayed rounded to 2 decimals, but Amount was
+                // still computed from the raw, unrounded sum of measurement lines, so displayed
+                // Quantity × Rate could still disagree with the displayed Amount.
+                Object.values(g).forEach(item => { item.qty = Math.round(item.qty * 100) / 100; });
+                return Object.values(g).filter(x => x.qty !== 0 || x.rate > 0);
+            });
+
+            const subtotal = computed(() => abstractItems.value.reduce((a, i) => a + Math.round(i.qty * i.modifiedRate), 0));
+
+            // NIT excludes Lump Sum / manual items from the priced schedule — only PSR-rated items are tendered on a quantity/rate basis.
+            const nitItems = computed(() => abstractItems.value.filter(item => !isLumpSumUnit(item.unit)));
+            const nitSubtotal = computed(() => nitItems.value.reduce((a, i) => a + Math.round(i.qty * i.modifiedRate), 0));
+            // NIT's own approved amount — contingency & GST applied to the NIT schedule's cumulative
+            // total (excluding Lump Sum items), matching the abstract's Grand Total formula
+            // (Subtotal + Contingency + GST).
+            const nitContingencyAmt = computed(() => nitSubtotal.value * (contingencyPct.value / 100));
+            const nitGstAmt = computed(() => nitSubtotal.value * (gstPct.value / 100));
+            const nitGrandTotal = computed(() => Math.round(nitSubtotal.value + nitContingencyAmt.value + nitGstAmt.value));
+            const contingencyAmt = computed(() => subtotal.value * (contingencyPct.value / 100));
+            const gstAmt = computed(() => subtotal.value * (gstPct.value / 100));
+            // Grand Total = Subtotal + Contingency + GST (both contingency and GST are added to
+            // the total estimate cost to arrive at the Grand Total).
+            const grandTotal = computed(() => Math.round(subtotal.value + contingencyAmt.value + gstAmt.value));
+
+            // Brief, head-wise auto-generated Scope of Work, drawn from the Detailed Measurements / Abstract data.
+            // Categorizes each item by type of work (Earthwork, Concrete, Masonry, etc.) and shortens its
+            // long PSR specification text down to a concise phrase suitable for a DPR.
+            const WORK_HEAD_ORDER = [
+                'Earthwork Items', 'Concrete Items', 'Steel & Structural Items', 'Masonry Items',
+                'Roofing Items', 'Doors & Windows Items', 'Plastering & Finishing Items',
+                'Flooring & Paving Items', 'Road Work Items', 'Drainage Items',
+                'Sanitary & Water Supply Items', 'Electrical Items', 'Miscellaneous Items'
+            ];
+
+            const categorizeSpec = (desc) => {
+                const d = (desc || '').toLowerCase();
+                if (/earth\s*work|excavat|filling|banking|embankment|dressing/.test(d)) return 'Earthwork Items';
+                if (/\bpcc\b|\brcc\b|cement concrete|concreting|concrete\b/.test(d)) return 'Concrete Items';
+                if (/reinforcement|structural steel|fabrication|ms\s|m\.s\.|tor steel|tmt/.test(d)) return 'Steel & Structural Items';
+                if (/brick|block\s*work|masonry|stone\s*work|rubble/.test(d)) return 'Masonry Items';
+                if (/roof|truss|sheet\s*(covering|roofing)|ac sheet|gi sheet/.test(d)) return 'Roofing Items';
+                if (/\bdoor\b|\bwindow\b|shutter|grill|frame/.test(d)) return 'Doors & Windows Items';
+                if (/plaster|pointing|white\s*wash|paint|distemper|putty|finishing/.test(d)) return 'Plastering & Finishing Items';
+                if (/floor|tile|paving|kerb|skirting/.test(d)) return 'Flooring & Paving Items';
+                if (/\broad\b|wbm|water\s*bound|bituminous|premix|tar\b|asphalt/.test(d)) return 'Road Work Items';
+                if (/drain|culvert|storm\s*water/.test(d)) return 'Drainage Items';
+                if (/\bpipe\b|sanitary|plumbing|water\s*supply|manhole|sewer|tap\b/.test(d)) return 'Sanitary & Water Supply Items';
+                if (/electrical|wiring|cable|conduit|\blight\b|switch|socket/.test(d)) return 'Electrical Items';
+                return 'Miscellaneous Items';
+            };
+
+            const shortenSpec = (desc) => {
+                if (!desc) return '(No description)';
+                let s = desc.trim();
+                s = s.split(/[.;\n]/)[0].trim();          // cut at first sentence break
+                s = s.replace(/\s*\([^)]*\)\s*$/, '');      // drop a trailing parenthetical
+                const maxLen = 85;
+                if (s.length > maxLen) {
+                    let cut = s.slice(0, maxLen);
+                    const lastSpace = cut.lastIndexOf(' ');
+                    if (lastSpace > 40) cut = cut.slice(0, lastSpace);
+                    s = cut.trim() + '…';
+                }
+                return s;
+            };
+
+            const scopeOfWorkGroups = computed(() => {
+                const groups = {};
+                abstractItems.value.forEach(item => {
+                    const cat = categorizeSpec(item.desc);
+                    const shortDesc = shortenSpec(item.desc);
+                    if (!groups[cat]) groups[cat] = [];
+                    groups[cat].push(shortDesc);
+                });
+                return WORK_HEAD_ORDER.filter(cat => groups[cat] && groups[cat].length).map(cat => ({ category: cat, items: groups[cat] }));
+            });
+
+            const scopeOfWorkItemCount = computed(() => abstractItems.value.length);
+
+            // Renders the head-wise groups as one flowing paragraph (no bullets) — e.g.
+            // "The work mainly involves Earthwork (excavation for foundation trenches), Concrete
+            //  (PCC in foundation, RCC in columns) and Masonry (brick work in superstructure)."
+            const scopeOfWorkParagraph = computed(() => {
+                const groups = scopeOfWorkGroups.value;
+                if (!groups.length) return '';
+                const clauses = groups.map(g => `${g.category.replace(' Items', '')} (${g.items.join('; ')})`);
+                let joined;
+                if (clauses.length === 1) {
+                    joined = clauses[0];
+                } else {
+                    joined = clauses.slice(0, -1).join(', ') + ' and ' + clauses[clauses.length - 1];
+                }
+                return `The work mainly involves ${joined}.`;
+            });
+
+            const exportDprWord = () => {
+                const esc = (s) => (s || '').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                const nl2br = (s) => esc(s).replace(/\n/g, '<br>');
+                const costVal = dprMeta.value.estimateCost || grandTotal.value.toFixed(2);
+
+                const scopeParagraphHtml = scopeOfWorkGroups.value.length
+                    ? `<p>${esc(scopeOfWorkParagraph.value)}</p>`
+                    : '<p>No items found — add specifications in Detailed Measurements first.</p>';
+
+                const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+<meta charset="utf-8">
+<title>DPR Report</title>
+<style>
+    @page { size: A4; margin: 2cm 1.5cm; }
+    body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #000; }
+    h1,h2,h3 { text-align: center; margin: 2px 0; }
+    h1 { font-size: 16pt; }
+    h2 { font-size: 14pt; }
+    h3.title { font-size: 13pt; text-decoration: underline; margin-bottom: 16px; }
+    h3.section { font-size: 12pt; border-bottom: 1px solid #000; padding-bottom: 4px; margin-top: 22px; }
+    table.meta { border-collapse: collapse; width: 100%; margin-bottom: 10px; }
+    table.meta td { border: 1px solid #000; padding: 6px 8px; font-size: 11pt; }
+    table.meta td.label { font-weight: bold; background: #eff6ff; width: 30%; }
+    .field-label { font-weight: bold; font-style: italic; color: #555; margin-top: 12px; margin-bottom: 2px; }
+    .field-value { border-bottom: 1px solid #999; padding-bottom: 4px; min-height: 18px; }
+    ul { margin: 4px 0 10px 0; padding-left: 22px; }
+    .cost-box { border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 6px 2px; margin: 14px 0; }
+    .sig-table { width: 100%; margin-top: 60px; }
+    .sig-table td { text-align: center; border: none; padding-top: 40px; }
+</style>
+</head>
+<body>
+<h1>ARIANKUPPAM COMMUNE PANCHAYAT</h1>
+<h2>ARIANKUPPAM</h2>
+<h3 class="title">DETAILED PROJECT REPORT (DPR)</h3>
+
+<table class="meta">
+    <tr><td class="label">Name of the Work</td><td>${esc(dprMeta.value.workName)}</td></tr>
+    <tr><td class="label">Estimate Cost (₹)</td><td>${esc(dprMeta.value.estimateCost)}</td></tr>
+    <tr><td class="label">Scheme</td><td>${esc(dprMeta.value.scheme)}</td></tr>
+    <tr><td class="label">Fund</td><td>${esc(dprMeta.value.fund)}</td></tr>
+</table>
+
+<h3 class="section">1. REPORT</h3>
+
+<div class="field-label">Details of the Work:</div>
+<div class="field-value">${nl2br(dprMeta.value.workName)}</div>
+
+<div class="field-label">Village / Location where the Work is Taken Up:</div>
+<div class="field-value">${esc(dprMeta.value.village)}</div>
+
+<div class="field-label">Necessity of the Estimate:</div>
+<div class="field-value">${nl2br(dprMeta.value.necessity)}</div>
+
+<div class="cost-box"><b>Cost of Estimate:</b> ₹ ${esc(costVal)}</div>
+
+<h3 class="section">2. SCOPE OF THE WORK</h3>
+${scopeParagraphHtml}
+<p>In brief, the proposed work involves the item(s) of work listed above, with an estimated total cost of ₹ ${esc(costVal)} (inclusive of contingencies and GST as applicable), to be executed as per Puducherry Schedule of Rates.</p>
+
+<h3 class="section">3. ADDITIONAL DETAILS</h3>
+
+<div class="field-label">Rate Adopted — as per which PSR:</div>
+<div class="field-value">${esc(dprMeta.value.psrAdopted)}</div>
+
+<div class="field-label">Method of Tendering:</div>
+<div class="field-value">${nl2br(dprMeta.value.tenderMethod)}</div>
+
+<div class="field-label">Tools &amp; Plant Arrangement:</div>
+<div class="field-value">${nl2br(dprMeta.value.toolsPlant)}</div>
+
+<table class="sig-table">
+    <tr>
+        <td>Prepared By<br><br><br><b>(Junior Engineer)</b></td>
+        <td>Checked By<br><br><br><b>(Assistant Engineer)</b></td>
+    </tr>
+</table>
+
+</body>
+</html>`;
+
+                const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `DPR_${projectMeta.value.estimateNo || 'Report'}.doc`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+
+            const exportNitWord = () => {
+                const esc = (s) => (s || '').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+                const nitItemsList = abstractItems.value.filter(item => !isLumpSumUnit(item.unit));
+                const nitTotal = nitItemsList.reduce((a, i) => a + Math.round(i.qty * i.modifiedRate), 0);
+                // NIT's own approved amount — contingency & GST applied to the NIT schedule's
+                // cumulative total (excluding Lump Sum items), matching the abstract's Grand Total.
+                const nitApprovedTotal = Math.round(nitTotal + (nitTotal * contingencyPct.value / 100) + (nitTotal * gstPct.value / 100));
+
+                const rowsHtml = nitItemsList.map((item, index) => `
+    <tr>
+        <td style="text-align:center;">${index + 1}</td>
+        <td><b>${esc(item.code)}</b></td>
+        <td>${esc(item.desc)}</td>
+        <td style="text-align:right; white-space:nowrap;">${Number(item.qty).toFixed(2)} ${esc(item.unit)}</td>
+        <td style="text-align:right; white-space:nowrap;">${Number(item.modifiedRate).toFixed(2)}</td>
+        <td style="text-align:center; white-space:nowrap;">${esc(unitPerLine1(item.unit))}<br>${esc(unitPerLine2(item.unit))}</td>
+        <td style="text-align:right; white-space:nowrap;">${Math.round(item.qty * item.modifiedRate).toLocaleString('en-IN')}</td>
+    </tr>`).join('');
+                // Total is appended as the final row of <tbody> (not <tfoot>) so it appears once, at
+                // the end of the schedule, rather than being repeated as a running footer.
+                const totalRowHtml = `
+    <tr>
+        <td colspan="6" style="text-align:right; font-weight:bold; background:#f3f3f3;">Cumulative Total Amount of All Items</td>
+        <td style="text-align:right; font-weight:bold; background:#f3f3f3;">₹ ${nitTotal.toLocaleString('en-IN')}</td>
+    </tr>`;
+
+                const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+<meta charset="utf-8">
+<title>Schedule of Quantities</title>
+<style>
+    @page { size: A4; margin: 2cm 1.5cm; }
+    body { font-family: Calibri, Arial, sans-serif; font-size: 10.5pt; color: #000; }
+    h1,h2,h3 { text-align: center; margin: 2px 0; }
+    h1 { font-size: 16pt; }
+    h2 { font-size: 14pt; }
+    h3.title { font-size: 13pt; text-decoration: underline; margin-bottom: 14px; }
+    table.meta { border-collapse: collapse; width: 100%; margin-bottom: 12px; }
+    table.meta td { border: 1px solid #000; padding: 6px 8px; font-size: 11pt; }
+    table.meta td.label { font-weight: bold; background: #eff6ff; width: 25%; }
+    table.items { border-collapse: collapse; width: 100%; font-size: 10pt; }
+    table.items th, table.items td { border: 1px solid #000; padding: 5px; }
+    table.items th { background: #eee; }
+    table.items tfoot td { font-weight: bold; background: #f3f3f3; }
+    .footnotes { margin-top: 16px; font-size: 10.5pt; }
+    .footnotes p { margin: 6px 0; }
+    .sig-table { width: 100%; margin-top: 60px; }
+    .sig-table td { text-align: center; border: none; padding-top: 40px; }
+</style>
+</head>
+<body>
+<h1>ARIANKUPPAM COMMUNE PANCHAYAT</h1>
+<h2>ARIANKUPPAM</h2>
+<h3 class="title">SCHEDULE OF QUANTITIES</h3>
+
+<table class="meta">
+    <tr><td class="label">Name of Work</td><td>${esc(projectMeta.value.workName)}</td></tr>
+    <tr><td class="label">NIT No.</td><td>${esc(nitMeta.value.nitNo)}</td></tr>
+</table>
+
+<table class="items">
+    <thead>
+        <tr>
+            <th style="width:5%;">S.No</th>
+            <th style="width:10%;">PSR Code</th>
+            <th>Description of Work</th>
+            <th style="width:12%;">Quantity</th>
+            <th style="width:10%;">Rate (₹)</th>
+            <th style="width:14%;">Per</th>
+            <th style="width:12%;">Amount (₹)</th>
+        </tr>
+    </thead>
+    <tbody>${rowsHtml}${totalRowHtml}
+    </tbody>
+</table>
+
+<div class="footnotes">
+    <p>Certified that this Notice Inviting Tender contains <b>${esc(nitMeta.value.pageFrom || '____')}</b> to <b>${esc(nitMeta.value.pageTo || '____')}</b> pages.</p>
+    <p>Certified that this Notice Inviting Tender contains <b>${nitItemsList.length}</b> item(s).</p>
+    <p>The Notice Inviting Tender is approved for an amount of Rs. <b>${nitApprovedTotal.toLocaleString('en-IN')}</b> (Rupees ${esc(numberToWords(nitApprovedTotal))} Only) — inclusive of GST.</p>
+</div>
+
+<table class="sig-table">
+    <tr>
+        <td>Signature<br><br><br><b>(Junior Engineer)</b></td>
+        <td>Signature<br><br><br><b>(Assistant Engineer)</b></td>
+        <td>Signature<br><br><br><b>(Commissioner)</b></td>
+    </tr>
+</table>
+
+</body>
+</html>`;
+
+                const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `NIT_${projectMeta.value.estimateNo || nitMeta.value.nitNo || 'Notice'}.doc`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+
+            const exportToExcel = () => {
+                // ---------- DETAILED MEASUREMENT SHEET (9 columns: 0-8) ----------
+                const DET_COLS = 9;
+                const detailedData = [];
+                const detailedMerges = [];
+
+                const pushDetTitle = (text) => {
+                    const row = new Array(DET_COLS).fill("");
+                    row[0] = text;
+                    detailedData.push(row);
+                    const r = detailedData.length - 1;
+                    detailedMerges.push({ s: { r, c: 0 }, e: { r, c: DET_COLS - 1 } });
+                };
+
+                pushDetTitle("ARIANKUPPAM COMMUNE PANCHAYAT");
+                pushDetTitle("ARIANKUPPAM");
+                pushDetTitle("DETAILED MEASUREMENT SHEET");
+                detailedData.push(new Array(DET_COLS).fill(""));
+
+                // Name of Work / Job No — mirrors the two-column line in the printed header.
+                {
+                    const row = new Array(DET_COLS).fill("");
+                    row[0] = "Name of Work:"; row[1] = projectMeta.value.workName;
+                    row[6] = "Job No:"; row[7] = projectMeta.value.estimateNo;
+                    detailedData.push(row);
+                    const r = detailedData.length - 1;
+                    detailedMerges.push({ s: { r, c: 1 }, e: { r, c: 5 } });
+                    detailedMerges.push({ s: { r, c: 7 }, e: { r, c: 8 } });
+                }
+                detailedData.push(new Array(DET_COLS).fill(""));
+
+                const detHeaderRowIndex = detailedData.length;
+                detailedData.push(["S.No", "Code", "Item Description / Location", "Nos", "L", "B", "D/H", "Unit", "Quantity"]);
+
+                const detNumericRows = []; // { r, cols: [colIndexes to format as 0.00] }
+                const detDescRows = []; // row indices whose column-2 cell holds wrappable description text
+
+                measurements.value.forEach((m, index) => {
+                    if (m.type === 'header') {
+                        detailedData.push([getSpecIndex(index), m.code, m.desc, "", "", "", "", "", ""]);
+                        const rIndex = detailedData.length - 1;
+                        detailedMerges.push({ s: { r: rIndex, c: 2 }, e: { r: rIndex, c: 8 } });
+                        detDescRows.push(rIndex);
+                    } else {
+                        const l = m.l ? Number(m.l) : "";
+                        const b = m.b ? Number(m.b) : "";
+                        const d = m.d ? Number(m.d) : "";
+                        const nos = m.nos || "";
+
+                        const qty = calculateRowQty(m, index);
+                        detailedData.push(["", "", m.desc, nos, l, b, d, "", qty !== 0 ? Number(qty) : ""]);
+                        detNumericRows.push({ r: detailedData.length - 1, cols: [4, 5, 6, 8] });
+                        detDescRows.push(detailedData.length - 1);
+                    }
+                    if (isEndOfGroup(index)) {
+                        detailedData.push(["", "", "Sub Total:", "", "", "", "", getParentUnit(index), Number(getGroupTotal(index))]);
+                        detNumericRows.push({ r: detailedData.length - 1, cols: [8] });
+                        detailedData.push(new Array(DET_COLS).fill(""));
+                    }
+                });
+
+                // Signatures — mirrors the printed "Prepared By / Checked By" block.
+                detailedData.push(new Array(DET_COLS).fill(""));
+                detailedData.push(new Array(DET_COLS).fill(""));
+                {
+                    const row = new Array(DET_COLS).fill("");
+                    row[0] = "Prepared By"; row[5] = "Checked By";
+                    detailedData.push(row);
+                    const r = detailedData.length - 1;
+                    detailedMerges.push({ s: { r, c: 0 }, e: { r, c: 3 } });
+                    detailedMerges.push({ s: { r, c: 5 }, e: { r, c: 8 } });
+                }
+                detailedData.push(new Array(DET_COLS).fill(""));
+                detailedData.push(new Array(DET_COLS).fill(""));
+                {
+                    const row = new Array(DET_COLS).fill("");
+                    row[0] = "(Junior Engineer)"; row[5] = "(Assistant Engineer)";
+                    detailedData.push(row);
+                    const r = detailedData.length - 1;
+                    detailedMerges.push({ s: { r, c: 0 }, e: { r, c: 3 } });
+                    detailedMerges.push({ s: { r, c: 5 }, e: { r, c: 8 } });
+                }
+
+                // ---------- ABSTRACT ESTIMATE (8 columns: 0-7) ----------
+                const ABS_COLS = 8;
+                const abstractData = [];
+                const abstractMerges = [];
+
+                const pushAbsTitle = (text) => {
+                    const row = new Array(ABS_COLS).fill("");
+                    row[0] = text;
+                    abstractData.push(row);
+                    const r = abstractData.length - 1;
+                    abstractMerges.push({ s: { r, c: 0 }, e: { r, c: ABS_COLS - 1 } });
+                };
+
+                pushAbsTitle("ARIANKUPPAM COMMUNE PANCHAYAT");
+                pushAbsTitle("ARIANKUPPAM");
+                pushAbsTitle("ABSTRACT ESTIMATE");
+                abstractData.push(new Array(ABS_COLS).fill(""));
+
+                {
+                    const row = new Array(ABS_COLS).fill("");
+                    row[0] = "Name of Work:"; row[1] = projectMeta.value.workName;
+                    row[5] = "Job No:"; row[6] = projectMeta.value.estimateNo;
+                    abstractData.push(row);
+                    const r = abstractData.length - 1;
+                    abstractMerges.push({ s: { r, c: 1 }, e: { r, c: 4 } });
+                    abstractMerges.push({ s: { r, c: 6 }, e: { r, c: 7 } });
+                }
+                {
+                    const row = new Array(ABS_COLS).fill("");
+                    row[0] = "Schedule of Rates:"; row[1] = "PSR 2024-2025";
+                    row[5] = "Date:"; row[6] = projectMeta.value.date;
+                    abstractData.push(row);
+                    const r = abstractData.length - 1;
+                    abstractMerges.push({ s: { r, c: 1 }, e: { r, c: 4 } });
+                    abstractMerges.push({ s: { r, c: 6 }, e: { r, c: 7 } });
+                }
+                abstractData.push(new Array(ABS_COLS).fill(""));
+
+                const absHeaderRowIndex = abstractData.length;
+                abstractData.push(["S.No", "Code", "Description of Work", "Quantity", "Unit", "Rate (₹)", "Mod Rate (₹)", "Amount (₹)"]);
+
+                const absNumericRows = [];
+                const absDescRows = []; // row indices whose column-2 cell holds wrappable description text
+                abstractItems.value.forEach((item, idx) => {
+                    abstractData.push([idx + 1, item.code, item.desc, Number(item.qty), item.unit, Number(item.rate), Number(item.modifiedRate), Math.round(item.qty * item.modifiedRate)]);
+                    absNumericRows.push({ r: abstractData.length - 1, decCols: [3, 5, 6], amtCols: [7] });
+                    absDescRows.push(abstractData.length - 1);
+                });
+                abstractData.push(new Array(ABS_COLS).fill(""));
+
+                const absSummaryStart = abstractData.length;
+                abstractData.push(["", "", "", "", "", "", "Subtotal", Number(subtotal.value)]);
+                abstractData.push(["", "", "", "", "", "", `Contingencies (${contingencyPct.value}%)`, Number(contingencyAmt.value.toFixed(2))]);
+                abstractData.push(["", "", "", "", "", "", `GST (${gstPct.value}%)`, Number(gstAmt.value.toFixed(2))]);
+                abstractData.push(["", "", "", "", "", "", "GRAND TOTAL AMOUNT", Number(grandTotal.value)]);
+                const absGrandTotalRow = abstractData.length - 1;
+                abstractData.push(new Array(ABS_COLS).fill(""));
+
+                {
+                    const row = new Array(ABS_COLS).fill("");
+                    row[0] = "Rupees in Words:"; row[1] = numberToWords(grandTotal.value) + " Only.";
+                    abstractData.push(row);
+                    const r = abstractData.length - 1;
+                    abstractMerges.push({ s: { r, c: 1 }, e: { r, c: 7 } });
+                }
+
+                // Signatures — mirrors the printed "Prepared By / Checked By" block.
+                abstractData.push(new Array(ABS_COLS).fill(""));
+                abstractData.push(new Array(ABS_COLS).fill(""));
+                {
+                    const row = new Array(ABS_COLS).fill("");
+                    row[0] = "Prepared By"; row[4] = "Checked By";
+                    abstractData.push(row);
+                    const r = abstractData.length - 1;
+                    abstractMerges.push({ s: { r, c: 0 }, e: { r, c: 3 } });
+                    abstractMerges.push({ s: { r, c: 4 }, e: { r, c: 7 } });
+                }
+                abstractData.push(new Array(ABS_COLS).fill(""));
+                abstractData.push(new Array(ABS_COLS).fill(""));
+                {
+                    const row = new Array(ABS_COLS).fill("");
+                    row[0] = "(Junior Engineer)"; row[4] = "(Assistant Engineer)";
+                    abstractData.push(row);
+                    const r = abstractData.length - 1;
+                    abstractMerges.push({ s: { r, c: 0 }, e: { r, c: 3 } });
+                    abstractMerges.push({ s: { r, c: 4 }, e: { r, c: 7 } });
+                }
+
+                // ---------- Build workbook ----------
+                const wb = XLSX.utils.book_new();
+                const wsDetailed = XLSX.utils.aoa_to_sheet(detailedData);
+                wsDetailed['!merges'] = detailedMerges;
+                wsDetailed['!cols'] = [{ wch: 6 }, { wch: 10 }, { wch: 40 }, { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 12 }];
+                // Apply 2-decimal number formatting to L/B/D/Quantity cells so Excel keeps them as
+                // real numbers (right-aligned, like the PDF) instead of the ".toFixed()" text strings
+                // used previously, which Excel left-aligns like ordinary text.
+                detNumericRows.forEach(({ r, cols }) => {
+                    cols.forEach(c => {
+                        const addr = XLSX.utils.encode_cell({ r, c });
+                        if (wsDetailed[addr] && typeof wsDetailed[addr].v === 'number') wsDetailed[addr].z = '0.00';
+                    });
+                });
+                // Wrap text on the Description / Location column so long entries stay readable inside
+                // the cell instead of overflowing across the row.
+                detDescRows.forEach(r => {
+                    const addr = XLSX.utils.encode_cell({ r, c: 2 });
+                    if (wsDetailed[addr]) wsDetailed[addr].s = { alignment: { wrapText: true, vertical: 'top' } };
+                });
+
+                const wsAbstract = XLSX.utils.aoa_to_sheet(abstractData);
+                wsAbstract['!merges'] = abstractMerges;
+                wsAbstract['!cols'] = [{ wch: 6 }, { wch: 10 }, { wch: 45 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 14 }];
+                absNumericRows.forEach(({ r, decCols, amtCols }) => {
+                    decCols.forEach(c => {
+                        const addr = XLSX.utils.encode_cell({ r, c });
+                        if (wsAbstract[addr] && typeof wsAbstract[addr].v === 'number') wsAbstract[addr].z = '0.00';
+                    });
+                    amtCols.forEach(c => {
+                        const addr = XLSX.utils.encode_cell({ r, c });
+                        if (wsAbstract[addr] && typeof wsAbstract[addr].v === 'number') wsAbstract[addr].z = '#,##0';
+                    });
+                });
+                // Wrap text on the Description of Work column, same as the Detailed sheet.
+                absDescRows.forEach(r => {
+                    const addr = XLSX.utils.encode_cell({ r, c: 2 });
+                    if (wsAbstract[addr]) wsAbstract[addr].s = { alignment: { wrapText: true, vertical: 'top' } };
+                });
+                // Subtotal / Contingency / GST / Grand Total amount column formatting.
+                for (let r = absSummaryStart; r <= absGrandTotalRow; r++) {
+                    const addr = XLSX.utils.encode_cell({ r, c: 7 });
+                    if (wsAbstract[addr] && typeof wsAbstract[addr].v === 'number') wsAbstract[addr].z = '#,##0.00';
+                }
+
+                XLSX.utils.book_append_sheet(wb, wsDetailed, "Detailed Estimate");
+                XLSX.utils.book_append_sheet(wb, wsAbstract, "Abstract Estimate");
+                XLSX.writeFile(wb, `Estimate_${projectMeta.value.estimateNo || 'ACP'}.xlsx`);
+            };
+
+            const numberToWords = (amount) => {
+                if (amount === 0) return "Zero";
+                const num = Math.round(amount); 
+                const a = ['', 'One ', 'Two ', 'Three ', 'Four ', 'Five ', 'Six ', 'Seven ', 'Eight ', 'Nine ', 'Ten ', 'Eleven ', 'Twelve ', 'Thirteen ', 'Fourteen ', 'Fifteen ', 'Sixteen ', 'Seventeen ', 'Eighteen ', 'Nineteen '];
+                const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+                const str = ('000000000' + num).slice(-9).match(/^(\d{2})(\d{2})(\d{2})(\d{1})(\d{2})$/);
+                if (!str) return ''; let w = '';
+                w += (str[1]!=0) ? (a[Number(str[1])]||b[str[1][0]]+' '+a[str[1][1]])+'Crore ' : '';
+                w += (str[2]!=0) ? (a[Number(str[2])]||b[str[2][0]]+' '+a[str[2][1]])+'Lakh ' : '';
+                w += (str[3]!=0) ? (a[Number(str[3])]||b[str[3][0]]+' '+a[str[3][1]])+'Thousand ' : '';
+                w += (str[4]!=0) ? (a[Number(str[4])]||b[str[4][0]]+' '+a[str[4][1]])+'Hundred ' : '';
+                w += (str[5]!=0) ? ((w!='')?'and ':'')+(a[Number(str[5])]||b[str[5][0]]+' '+a[str[5][1]]) : '';
+                return w.trim();
+            };
+
+            return {
+                activeTab, searchQueryLibrary, projectMeta, psrData, filteredLibrary, measurements, contingencyPct, gstPct, gstPctSelect, onGstPresetChange, abstractItems, subtotal, contingencyAmt, gstAmt, grandTotal, dprMeta, scopeOfWorkGroups, scopeOfWorkItemCount, scopeOfWorkParagraph, exportDprWord, nitMeta, nitItems, nitSubtotal, nitGrandTotal, unitPerLine1, unitPerLine2, exportNitWord,
+                addSpecificationHeader, addLumpSumItem, insertSpecificationBefore, insertSpecificationAfter, addMeasurementLine, removeRow, autoFillPsr, calculateRowQty, getSpecIndex, getParentUnit, isEndOfGroup, getGroupTotal, printReport, savePdf, saveCompletePDF, isPrintingAll, clearLibrary,
+                exportProjectJSON, importProjectJSON, resetProject, lastSaved, numberToWords, exportToExcel, searchModal, openPsrSearchModal, closePsrSearchModal, filteredModalList, selectPsrItem, handleFileUpload, handlePaste, deleteLibraryItem,
+                toggleCopySelect, pasteRow, clipboardData, selectedRowIds, formatDecimal, restrictLengthInput, formatNosField, formatLibraryRate, isPsrMatch, getPsrItem, formatManualRate, toggleReferenceLine,
+                currentUser, users, authMode, authError, registerMsg, newUserMsg, loginForm, registerForm, newUserForm, isAdmin, pendingUsersCount,
+                login, logout, requestAccess, approveUser, rejectUser, deleteUser, toggleRole, resetUserPassword, addUserDirect
+            };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
